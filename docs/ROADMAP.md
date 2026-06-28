@@ -15,11 +15,19 @@
 - **Stock Comparison** — side-by-side comparison of up to 3 stocks (`/compare`)
 - **Portfolio Screener** — weighted Sharia assessment of entire portfolio (`/portfolio`)
 - **Education Center** — Sharia investment academy explaining AAOIFI standards (`/learn`)
-- **Market Stats API** — aggregate compliance statistics by sector (`GET /api/stats`)
+- **Market Dashboard** — sector heatmap, compliance donut, top halal stocks leaderboard, market cap analytics (`/market`)
+- **Watchlist** — star/bookmark stocks, re-screen on demand, change detection (`/watchlist`)
+- **Zakat Calculator** — Islamic zakat on investments with dynamic nisab (`/zakat`)
+- **Purification Calculator** — income purification with auto/manual modes (`/purification`)
+- **Auth Pages** — login & signup with social auth UI (`/login`, `/signup`)
+- **Legal Pages** — Privacy Policy, Terms, Disclaimer, About, Contact
+- **Custom 404** — branded bilingual not-found page
 - Full bilingual support (Arabic RTL / English LTR)
 - Responsive design (mobile, tablet, desktop)
+- SEO: sitemap.xml (30 URLs), robots.ts, JSON-LD, PWA manifest
+- localStorage-based watchlist persistence
 
-### Backend API (FastAPI)
+### Backend API (FastAPI — v1.4.0)
 - `GET /api/health` — health check
 - `GET /api/stocks` — list all stocks (with sector filter)
 - `GET /api/stocks/{ticker}` — single stock with full Sharia verdict
@@ -28,9 +36,18 @@
 - `POST /api/sharia-screen` — custom company screening
 - `POST /api/portfolio-screen` — portfolio-level compliance analysis
 - `GET /api/stats` — market-wide compliance statistics
-- 9 backend tests, all passing
+- `GET /api/market` — comprehensive market dashboard data (sectors, top stocks, ratios)
+- 11 backend tests, all passing
 
-## P0: Near-term (1-2 months)
+## P0: Near-term (Pre-Launch)
+
+### Polish & Deploy
+- App icons (192px / 512px PNGs for PWA)
+- Open Graph image for social sharing
+- Deploy backend to Render/Railway → `api.mizan-invest.com`
+- Deploy frontend to Vercel → `mizan-invest.com`
+- Performance audit (Lighthouse > 90)
+- Accessibility audit (WCAG 2.1 AA)
 
 ### US Market Expansion
 - Add US stocks (AAPL, MSFT, GOOGL, etc.) via SEC EDGAR / yfinance
@@ -56,7 +73,7 @@
 - Multi-depth modes: lite / standard / deep
 
 ### Watchlists & Alerts
-- Track favorite stocks
+- Server-side watchlists (currently localStorage)
 - Push notifications for ratio threshold breaches
 - Quarterly re-screening reminders
 
