@@ -26,6 +26,8 @@ export default function Navbar({ dict, locale }: NavbarProps) {
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },
     { href: `/${locale}/watchlist`, label: locale === "ar" ? "المراقبة" : "Watchlist" },
     { href: `/${locale}/learn`, label: locale === "ar" ? "تعليم" : "Learn" },
+    { href: `/${locale}/zakat`, label: locale === "ar" ? "حاسبة الزكاة" : "Zakat" },
+    { href: `/${locale}/purification`, label: locale === "ar" ? "حاسبة التنقية" : "Purify" },
     { href: "#checker", label: dict.nav.shariaChecker },
     { href: "#features", label: dict.nav.features },
     { href: "#pricing", label: dict.nav.pricing },

@@ -15,6 +15,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/privacy",
     "/terms",
     "/disclaimer",
+    "/zakat",
+    "/purification",
+    "/login",
+    "/signup",
   ];
 
   const entries: MetadataRoute.Sitemap = [];
