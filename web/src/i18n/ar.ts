@@ -270,6 +270,34 @@ export const ar = {
     note: "لا حاجة لبطاقة ائتمان",
   },
 
+
+  // Compare tool
+  compare: {
+    title: "قارن بين الأسهم",
+    subtitle: "قارن ما يصل إلى 3 أسهم جنباً إلى جنب — الفحص الشرعي، النسب المالية، والأحكام",
+    addStock: "أضف سهماً للمقارنة",
+    searchPlaceholder: "ابحث برقم السهم أو اسم الشركة...",
+    remove: "إزالة",
+    maxReached: "الحد الأقصى 3 أسهم",
+    emptyState: "أضف سهماً واحداً على الأقل لبدء المقارنة",
+    metricVerdict: "الحكم الشرعي",
+    metricSector: "القطاع",
+    metricMarket: "السوق",
+    metricDebtAssets: "الدين / الأصول",
+    metricDebtMcap: "الدين / القيمة السوقية",
+    metricInterestInv: "استثمارات بفائدة / الأصول",
+    metricReceivables: "الذمم المدينة",
+    metricNonCompliant: "دخل غير متوافق",
+    metricStandard: "المعيار",
+    bestInClass: "الأفضل",
+    passCount: "نسب مجتازة",
+    compliant: "متوافق",
+    nonCompliant: "غير متوافق",
+    needsPurification: "يتطلب تنقية",
+    pickPrompt: "اختر أسهماً للمقارنة",
+    vs: "مقارنة بـ",
+    noRatios: "لا توجد بيانات مالية متاحة",
+  },
   // Footer
   footer: {
     tagline: "منصة الاستثمار المتوافقة مع الشريعة الإسلامية",

@@ -21,6 +21,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
 
   const navItems = [
     { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
+    { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
     { href: "#checker", label: dict.nav.shariaChecker },
     { href: "#features", label: dict.nav.features },
     { href: "#pricing", label: dict.nav.pricing },
