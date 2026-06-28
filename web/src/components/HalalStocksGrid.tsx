@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import type { Dict } from "@/i18n/ar";
 
 interface HalalStocksGridProps {
@@ -237,21 +238,10 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
             {filtered.map((stock) => {
               const isPureCompliant = stock.verdict === "COMPLIANT";
               return (
-                <a
+                <Link
                   key={`${stock.ticker}-${stock.name_en}`}
-                  href={`#checker`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    // Scroll to checker and pre-fill
-                    document.getElementById("checker")?.scrollIntoView({ behavior: "smooth" });
-                    // Dispatch a custom event the checker can listen for
-                    window.dispatchEvent(
-                      new CustomEvent("prefill-stock", {
-                        detail: { ticker: stock.ticker, name: stock.name_en },
-                      })
-                    );
-                  }}
-                  className="group bg-white rounded-2xl border-2 border-gray-100 hover:border-mizan-green/40 hover:shadow-lg transition-all p-5 cursor-pointer relative overflow-hidden"
+                  href={`/${locale}/stock/${stock.ticker}`}
+                  className="group bg-white rounded-2xl border-2 border-gray-100 hover:border-mizan-green/40 hover:shadow-lg transition-all p-5 cursor-pointer relative overflow-hidden block"
                 >
                   {/* Verdict badge */}
                   <div className="flex items-start justify-between mb-3">
@@ -298,7 +288,7 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
                       {locale === "ar" ? "عرض التفاصيل ←" : "View details →"}
                     </span>
                   </div>
-                </a>
+                </Link>
               );
             })}
           </div>
