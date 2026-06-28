@@ -23,6 +23,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
     { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
     { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },
+    { href: `/${locale}/learn`, label: locale === "ar" ? "تعليم" : "Learn" },
     { href: "#checker", label: dict.nav.shariaChecker },
     { href: "#features", label: dict.nav.features },
     { href: "#pricing", label: dict.nav.pricing },

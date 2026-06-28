@@ -90,7 +90,7 @@ def screen_stock(stock: dict) -> dict:
 app = FastAPI(
     title="Mizan API",
     description="Sharia-compliant investment screening API for Saudi Arabia",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 # CORS — allow the Vercel frontend and localhost dev
@@ -405,6 +405,68 @@ async def search_stocks(
                 ),
             })
 
+    return results
+
+@app.get("/api/stats")
+async def market_stats():
+    """Aggregate Sharia compliance statistics across the entire stock universe.
+
+    Returns sector-level breakdowns of compliance rates, overall halal %,
+    and the distribution of verdicts. Powers the Education Center dashboard.
+    """
+    stocks = load_stocks()
+    total = len(stocks)
+
+    verdict_counts = {"COMPLIANT": 0, "COMPLIANT_WITH_OVERLAY": 0, "COMPLIANT_WITH_PURIFICATION": 0, "NON_COMPLIANT": 0}
+    sector_stats: dict[str, dict] = {}
+
+    for s in stocks:
+        result = screen_stock(s)
+        verdict = result.get("verdict", "NON_COMPLIANT")
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+
+        sector_key = s.get("sector_en", "Unknown")
+        sector_ar = s.get("sector_ar", sector_key)
+
+        if sector_key not in sector_stats:
+            sector_stats[sector_key] = {
+                "sector_en": sector_key,
+                "sector_ar": sector_ar,
+                "total": 0,
+                "compliant": 0,
+                "non_compliant": 0,
+                "purification": 0,
+            }
+
+        sector_stats[sector_key]["total"] += 1
+        if verdict == "COMPLIANT":
+            sector_stats[sector_key]["compliant"] += 1
+        elif verdict in ("COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+            sector_stats[sector_key]["compliant"] += 1
+            sector_stats[sector_key]["purification"] += 1
+        else:
+            sector_stats[sector_key]["non_compliant"] += 1
+
+    halal_count = verdict_counts["COMPLIANT"] + verdict_counts["COMPLIANT_WITH_OVERLAY"] + verdict_counts["COMPLIANT_WITH_PURIFICATION"]
+
+    sectors = []
+    for sector_data in sorted(sector_stats.values(), key=lambda x: x["compliant"], reverse=True):
+        total_s = sector_data["total"]
+        sectors.append({
+            **sector_data,
+            "compliance_rate": round(sector_data["compliant"] / total_s * 100, 1) if total_s > 0 else 0,
+        })
+
+    return {
+        "total_stocks": total,
+        "halal_count": halal_count,
+        "halal_pct": round(halal_count / total * 100, 1) if total > 0 else 0,
+        "non_compliant_count": verdict_counts["NON_COMPLIANT"],
+        "purification_count": verdict_counts["COMPLIANT_WITH_OVERLAY"] + verdict_counts["COMPLIANT_WITH_PURIFICATION"],
+        "verdict_distribution": verdict_counts,
+        "sectors": sectors,
+        "standard": "AAOIFI Standard No. 21",
+    }
     return results
 
 

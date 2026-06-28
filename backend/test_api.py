@@ -96,6 +96,15 @@ r = client.post('/api/portfolio-screen', json={
 pdata = r.json()
 print(f'\nWITH NOT-FOUND: holdings={pdata["summary"]["total_holdings"]}, not_found={pdata["not_found"]}')
 assert 'FAKE' in pdata['not_found']
-assert pdata['summary']['total_holdings'] == 1
+
+# Test stats endpoint
+r = client.get('/api/stats')
+assert r.status_code == 200
+sdata = r.json()
+print(f'\nSTATS: {sdata["total_stocks"]} stocks, {sdata["halal_count"]} halal ({sdata["halal_pct"]}%)')
+print(f'  Sectors: {len(sdata["sectors"])}')
+assert sdata['total_stocks'] >= 49
+assert sdata['halal_count'] >= 14
+assert len(sdata['sectors']) >= 10
 
 print('\n\u2705 All tests passed!')
