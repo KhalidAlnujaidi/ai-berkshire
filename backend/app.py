@@ -5,8 +5,9 @@ Provides:
   - GET  /api/health          — health check
   - GET  /api/stocks          — list all stocks in database
   - GET  /api/stocks/{ticker} — get single stock + Sharia verdict
+  - GET  /api/halal-stocks    — list ONLY Sharia-compliant stocks (pre-filtered)
   - POST /api/sharia-screen   — screen a company with custom financial data
-  - GET  /api/search?q=...    — search stocks by name or ticker
+  - GET  /api/search?q=...    — search stocks by name or ticker (with verdict)
 """
 
 import sys
@@ -59,12 +60,36 @@ def find_stock(query: str) -> Optional[dict]:
     return None
 
 
+def screen_stock(stock: dict) -> dict:
+    """Run the Sharia screen on a single stock dict and merge results."""
+    result = screen_company(
+        name=stock["name_en"],
+        ticker=stock["ticker"],
+        sector=stock["sector_en"],
+        total_assets=stock["total_assets"],
+        total_debt=stock["total_debt"],
+        interest_bearing_investments=stock.get("interest_bearing_investments", 0),
+        accounts_receivable=stock.get("accounts_receivable", 0),
+        cash_and_equivalents=stock.get("cash_and_equivalents", 0),
+        market_cap=stock.get("market_cap", 0),
+        non_compliant_income=stock.get("non_compliant_income", 0),
+        total_revenue=stock.get("total_revenue", 0),
+    )
+    return {
+        **result,
+        "name_ar": stock["name_ar"],
+        "sector_ar": stock["sector_ar"],
+        "market": stock.get("market", "saudi"),
+        "currency": stock.get("currency", "SAR"),
+    }
+
+
 # ── FastAPI App ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Mizan API",
     description="Sharia-compliant investment screening API for Saudi Arabia",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # CORS — allow the Vercel frontend and localhost dev
@@ -118,7 +143,7 @@ async def health():
     return {
         "status": "ok",
         "service": "Mizan Sharia Screening API",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "standard": "AAOIFI Standard No. 21",
         "stocks_count": len(stocks),
     }
@@ -150,6 +175,49 @@ async def list_stocks(sector: Optional[str] = None):
     ]
 
 
+@app.get("/api/halal-stocks")
+async def list_halal_stocks(sector: Optional[str] = None):
+    """List ONLY Sharia-compliant stocks.
+
+    Every stock in the database is screened on the fly. Only those that
+    pass BOTH qualitative and quantitative screens are returned. This is
+    the core 'Discover' feature — users browse a pre-filtered universe
+    where every stock is already verified halal.
+    """
+    stocks = load_stocks()
+
+    if sector:
+        sector_lower = sector.lower()
+        stocks = [
+            s for s in stocks
+            if sector_lower in s.get("sector_en", "").lower()
+            or sector in s.get("sector_ar", "")
+        ]
+
+    halal_only = []
+    for s in stocks:
+        result = screen_stock(s)
+        verdict = result.get("verdict", "")
+        if verdict in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+            halal_only.append({
+                "ticker": s["ticker"],
+                "name_en": s["name_en"],
+                "name_ar": s["name_ar"],
+                "sector_en": s["sector_en"],
+                "sector_ar": s["sector_ar"],
+                "market": s.get("market", "saudi"),
+                "currency": s.get("currency", "SAR"),
+                "verdict": verdict,
+                "verdict_detail": result.get("verdict_detail", ""),
+            })
+
+    return {
+        "count": len(halal_only),
+        "total_screened": len(stocks),
+        "stocks": halal_only,
+    }
+
+
 @app.get("/api/stocks/{ticker}")
 async def get_stock(ticker: str):
     """Get a single stock with full Sharia compliance screening."""
@@ -157,27 +225,7 @@ async def get_stock(ticker: str):
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock '{ticker}' not found")
 
-    # Run the Sharia screen
-    result = screen_company(
-        name=stock["name_en"],
-        ticker=stock["ticker"],
-        sector=stock["sector_en"],
-        total_assets=stock["total_assets"],
-        total_debt=stock["total_debt"],
-        interest_bearing_investments=stock.get("interest_bearing_investments", 0),
-        accounts_receivable=stock.get("accounts_receivable", 0),
-        cash_and_equivalents=stock.get("cash_and_equivalents", 0),
-        market_cap=stock.get("market_cap", 0),
-        non_compliant_income=stock.get("non_compliant_income", 0),
-        total_revenue=stock.get("total_revenue", 0),
-    )
-
-    # Merge stock info with screening result
-    return {
-        **result,
-        "name_ar": stock["name_ar"],
-        "sector_ar": stock["sector_ar"],
-    }
+    return screen_stock(stock)
 
 
 @app.post("/api/sharia-screen")
@@ -203,7 +251,7 @@ async def custom_sharia_screen(req: ShariaScreenRequest):
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query (ticker, Arabic or English name)")
 ):
-    """Search stocks by ticker or name."""
+    """Search stocks by ticker or name, with full Sharia verdict included."""
     stocks = load_stocks()
     query = q.strip().lower()
 
@@ -214,17 +262,19 @@ async def search_stocks(
             or query in s.get("name_en", "").lower()
             or q.strip() in s.get("name_ar", "")
         ):
-            # Include a quick sector screen
-            sector_info = screen_sector(s["sector_en"])
+            # Run full screen for each match
+            result = screen_stock(s)
             results.append({
-                **StockBrief(
-                    ticker=s["ticker"],
-                    name_ar=s["name_ar"],
-                    name_en=s["name_en"],
-                    sector_ar=s["sector_ar"],
-                    sector_en=s["sector_en"],
-                ).model_dump(),
-                "sharia_category": sector_info["category"],
+                "ticker": s["ticker"],
+                "name_en": s["name_en"],
+                "name_ar": s["name_ar"],
+                "sector_en": s["sector_en"],
+                "sector_ar": s["sector_ar"],
+                "verdict": result.get("verdict", ""),
+                "verdict_ar": result.get("verdict_ar", ""),
+                "is_halal": result.get("verdict", "") in (
+                    "COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"
+                ),
             })
 
     return results

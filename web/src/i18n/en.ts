@@ -101,6 +101,20 @@ export const en: Dict = {
     },
   },
 
+  // Discover — Halal Stocks Grid
+  discover: {
+    title: "The Halal Universe",
+    subtitle: "Every stock here has already passed dual Sharia screening — browse with confidence",
+    filterAll: "All Sectors",
+    screened: "screened",
+    passed: "passed",
+    verifiedHalal: "Verified Halal",
+    needsPurification: "Needs Purification",
+    viewDetails: "View Details",
+    loadingText: "Screening stocks...",
+  },
+
+
   features: {
     sectionTitle: "Why Mizan?",
     sectionSubtitle: "Four engines working together for your best investment decision",

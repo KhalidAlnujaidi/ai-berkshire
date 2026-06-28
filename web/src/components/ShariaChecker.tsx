@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Dict } from "@/i18n/ar";
 
 interface ShariaCheckerProps {
@@ -74,6 +74,16 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     verdict_ar: "متوافق مع ملاحظات",
     verdict_detail: "Permitted business. Monitor for impermissible income streams.",
   },
+  "1180": {
+    company: "Saudi National Bank (SNB)",
+    ticker: "1180",
+    name_ar: "بنك الأهلي السعودي",
+    sector: "Conventional Banking",
+    sector_ar: "الخدمات المصرفية التقليدية",
+    verdict: "NON_COMPLIANT",
+    verdict_ar: "غير متوافق",
+    verdict_detail: "Core business is conventional (interest-based) banking. Hard fail.",
+  },
 };
 
 // Determine API base URL
@@ -85,7 +95,21 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
   const [result, setResult] = useState<ShariaApiResponse | null>(null);
   const [error, setError] = useState("");
 
-  const handleCheck = async (stockKey?: string) => {
+  // Listen for prefill events from HalalStocksGrid
+  useEffect(() => {
+    function handlePrefill(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.ticker) {
+        setQuery(detail.ticker);
+        handleCheck(detail.ticker);
+      }
+    }
+    window.addEventListener("prefill-stock", handlePrefill);
+    return () => window.removeEventListener("prefill-stock", handlePrefill);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleCheck(stockKey?: string) {
     const q = (stockKey || query).trim();
     if (!q) return;
 
@@ -143,7 +167,7 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const verdictColor =
     result?.verdict === "COMPLIANT"
@@ -152,10 +176,12 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
       ? "gold"
       : "red";
 
+  const isNonCompliant = result?.verdict === "NON_COMPLIANT";
+
   // Extract ratio results from API response
   const ratios = result?.quantitative_screen
     ? Object.entries(result.quantitative_screen)
-        .filter(([key, val]) => typeof val === "object" && val !== null && "value" in val)
+        .filter(([, val]) => typeof val === "object" && val !== null && "value" in val)
         .map(([key, val]) => {
           const r = val as RatioResult;
           return {
@@ -231,70 +257,115 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
         {/* Result */}
         {result && (
           <div className="mt-8 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden animate-scale-in">
-            {/* Stock header */}
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex items-center justify-between flex-wrap gap-4">
+            {/* Verdict header */}
+            <div
+              className={`px-6 py-5 ${
+                verdictColor === "green"
+                  ? "bg-mizan-green/10"
+                  : verdictColor === "gold"
+                  ? "bg-amber-50"
+                  : "bg-red-50"
+              }`}
+            >
+              <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-2xl font-bold text-mizan-ink font-arabic">
-                    {locale === "ar" ? result.name_ar || result.company : result.company}
-                  </h3>
-                  <p className="text-sm text-mizan-slate mt-1 font-arabic">
-                    {locale === "ar" ? result.sector_ar || result.sector : result.sector}
-                    {result.ticker && <span className="ml-2 text-gray-400">#{result.ticker}</span>}
-                  </p>
+                  <p className="text-sm text-mizan-slate font-arabic">{result.company}</p>
+                  {result.name_ar && (
+                    <p className="text-xl font-bold text-mizan-ink font-arabic">{result.name_ar}</p>
+                  )}
                 </div>
-                {/* Verdict badge */}
-                <div
-                  className={`px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 font-arabic ${
-                    verdictColor === "green"
-                      ? "bg-green-50 text-green-700 border border-green-200"
+                <div className="text-right">
+                  <span
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ${
+                      verdictColor === "green"
+                        ? "bg-mizan-green text-white"
+                        : verdictColor === "gold"
+                        ? "bg-amber-500 text-white"
+                        : "bg-red-500 text-white"
+                    }`}
+                  >
+                    {verdictColor === "green"
+                      ? "✓"
                       : verdictColor === "gold"
-                      ? "bg-amber-50 text-amber-700 border border-amber-200"
-                      : "bg-red-50 text-red-700 border border-red-200"
-                  }`}
-                >
-                  <span className="text-xl">
-                    {verdictColor === "green" ? "✅" : verdictColor === "gold" ? "✅⚠️" : "❌"}
+                      ? "⚠"
+                      : "✗"}
+                    {locale === "ar" ? result.verdict_ar : result.verdict.replace(/_/g, " ")}
                   </span>
-                  {locale === "ar" ? result.verdict_ar : result.verdict.replace(/_/g, " ")}
                 </div>
               </div>
             </div>
 
-            {/* Ratios */}
-            {ratios.length > 0 && (
-              <div className="p-6 border-b border-gray-100">
-                <h4 className="text-sm font-semibold text-mizan-ink mb-4 font-arabic">
-                  {locale === "ar" ? "المؤشرات المالية (معيار AAOIFI 21)" : "Financial Ratios (AAOIFI Standard 21)"}
-                </h4>
-                <div className="space-y-3">
-                  {ratios.map((ratio, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <span className="text-sm text-mizan-slate font-arabic">{ratio.label}</span>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-sm font-mono ${ratio.pass ? "text-green-600" : "text-red-600"}`}>
-                          {ratio.value}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded ${ratio.pass ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`}>
-                          {ratio.pass
-                            ? (locale === "ar" ? "مقبول" : "Pass")
-                            : (locale === "ar" ? "مرفوض" : "Fail")}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            {/* Non-compliant warning banner */}
+            {isNonCompliant && (
+              <div className="px-6 py-3 bg-red-500/10 border-b border-red-100">
+                <p className="text-sm text-red-700 font-arabic flex items-center gap-2">
+                  <span className="text-lg">🚫</span>
+                  {locale === "ar"
+                    ? "هذا السهم غير متوافق مع الشريعة الإسلامية. لا يُنصح بالاستثمار فيه للمستثمر المسلم."
+                    : "This stock is NOT Sharia-compliant. Muslim investors should avoid it."}
+                </p>
               </div>
             )}
 
             {/* Detail */}
-            <div className="p-6 bg-gray-50/50">
-              <p className="text-sm text-mizan-slate font-arabic leading-relaxed">
-                {result.verdict_detail}
-              </p>
-              <p className="text-xs text-gray-400 mt-3 font-arabic">
-                {locale === "ar" ? "المعيار: معيار الأوراق المالية الإسلامية رقم 21" : "Standard: AAOIFI Securities Standard No. 21"}
-              </p>
+            <div className="px-6 py-4">
+              <p className="text-sm text-mizan-slate font-arabic mb-4">{result.verdict_detail}</p>
+
+              {/* Sector screen */}
+              {result.qualitative_screen && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2 font-arabic">
+                    {dict.checker.sectorScreen}
+                  </h4>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <span
+                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                        result.qualitative_screen.compliant
+                          ? "bg-mizan-green/20 text-mizan-green"
+                          : "bg-red-100 text-red-500"
+                      }`}
+                    >
+                      {result.qualitative_screen.compliant ? "✓" : "✗"}
+                    </span>
+                    <span className="text-sm text-mizan-slate font-arabic">
+                      {result.qualitative_screen.notes}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Ratios */}
+              {ratios.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2 font-arabic">
+                    {dict.checker.ratioScreen}
+                  </h4>
+                  <div className="space-y-2">
+                    {ratios.map((ratio, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                              ratio.pass
+                                ? "bg-mizan-green/20 text-mizan-green"
+                                : "bg-red-100 text-red-500"
+                            }`}
+                          >
+                            {ratio.pass ? "✓" : "✗"}
+                          </span>
+                          <span className="text-sm text-mizan-slate font-arabic">{ratio.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-mono font-medium text-mizan-ink">
+                            {ratio.value}
+                          </span>
+                          <span className="text-xs text-gray-400 ml-1">/ {ratio.threshold}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -305,15 +376,27 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
 
 // Helper: human-readable ratio labels
 function ratioLabel(key: string, locale: string): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    debt_to_assets: { ar: "الدين / إجمالي الأصول", en: "Debt / Assets" },
-    debt_to_market_cap: { ar: "الدين / القيمة السوقية", en: "Debt / Market Cap" },
-    interest_bearing_investments_to_assets: { ar: "استثمات بفائدة / الأصول", en: "Interest Investments / Assets" },
-    interest_bearing_investments_to_market_cap: { ar: "استثمات بفائدة / القيمة السوقية", en: "Interest Investments / Market Cap" },
-    receivables_to_total: { ar: "المستحقات / الإجمالي", en: "Receivables / Total" },
-    non_compliant_income: { ar: "الدخل غير المشروع", en: "Non-compliant Income" },
+  const labels: Record<string, { en: string; ar: string }> = {
+    debt_to_assets: { en: "Debt / Total Assets", ar: "الدين / إجمالي الأصول" },
+    debt_to_market_cap: { en: "Debt / Market Cap", ar: "الدين / القيمة السوقية" },
+    interest_bearing_investments_to_assets: {
+      en: "Interest-Bearing Investments / Assets",
+      ar: "استثمارات Bearing الفائدة / الأصول",
+    },
+    interest_bearing_investments_to_market_cap: {
+      en: "Interest-Bearing Investments / Market Cap",
+      ar: "استثمارات Bearing الفائدة / القيمة السوقية",
+    },
+    receivables_to_total: {
+      en: "Accounts Receivable / (Cash + Receivables)",
+      ar: "الذمم المدينة / (النقد + الذمم)",
+    },
+    non_compliant_income: {
+      en: "Non-Compliant Income / Revenue",
+      ar: "الدخل غير المتوافق / الإيرادات",
+    },
   };
-  const l = labels[key];
-  if (!l) return key;
-  return locale === "ar" ? l.ar : l.en;
+  const entry = labels[key];
+  if (!entry) return key;
+  return locale === "ar" ? entry.ar : entry.en;
 }

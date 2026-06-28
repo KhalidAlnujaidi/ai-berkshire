@@ -104,6 +104,19 @@ export const ar = {
     },
   },
 
+  // Discover — Halal Stocks Grid
+  discover: {
+    title: "الكون الحلال",
+    subtitle: "كل سهم هنا اجتاز الفحص الشرعي المزدوج — لا حاجة للقلق بشأن الحلال والحرام",
+    filterAll: "جميع القطاعات",
+    screened: "تم فحصه",
+    passed: "اجتاز",
+    verifiedHalal: "حلال مؤكد",
+    needsPurification: "يتطلب تنقية",
+    viewDetails: "عرض التفاصيل",
+    loadingText: "جاري فحص الأسهم...",
+  },
+
   // Features
   features: {
     sectionTitle: "لماذا ميزان؟",

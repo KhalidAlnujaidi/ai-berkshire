@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import TrackRecord from "@/components/TrackRecord";
 import Hero from "@/components/Hero";
 import TrustBar from "@/components/TrustBar";
+import HalalStocksGrid from "@/components/HalalStocksGrid";
 import ShariaChecker from "@/components/ShariaChecker";
 import Features from "@/components/Features";
 import HowItWorks from "@/components/HowItWorks";
@@ -28,6 +29,7 @@ export default function HomePage({ params }: { params: { locale: string } }) {
         <Hero dict={dict} />
         <TrustBar locale={locale} />
         <TrackRecord dict={dict} />
+        <HalalStocksGrid dict={dict} locale={locale} />
         <ShariaChecker dict={dict} locale={locale} />
         <Features dict={dict} />
         <HowItWorks dict={dict} />

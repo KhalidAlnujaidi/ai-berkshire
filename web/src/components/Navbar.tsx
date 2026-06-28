@@ -20,10 +20,10 @@ export default function Navbar({ dict, locale }: NavbarProps) {
   }, []);
 
   const navItems = [
-    { href: "#features", label: dict.nav.features },
+    { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
     { href: "#checker", label: dict.nav.shariaChecker },
+    { href: "#features", label: dict.nav.features },
     { href: "#pricing", label: dict.nav.pricing },
-    { href: "#vision", label: dict.nav.vision2030 },
   ];
 
   const switchLocale = locale === "ar" ? "en" : "ar";
