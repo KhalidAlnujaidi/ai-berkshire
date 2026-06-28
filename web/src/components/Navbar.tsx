@@ -21,6 +21,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
   }, []);
 
   const navItems = [
+    { href: `/${locale}/market`, label: locale === "ar" ? "السوق" : "Market" },
     { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
     { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },

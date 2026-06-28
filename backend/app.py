@@ -31,12 +31,10 @@ from sharia_screener import screen_company, screen_sector  # noqa: E402
 # ── Stock Database ──────────────────────────────────────────────────────────
 STOCKS_FILE = Path(__file__).resolve().parent / "stocks.json"
 
-
 def load_stocks() -> list[dict]:
     """Load Saudi stock data from JSON file."""
     with open(STOCKS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
-
 
 def find_stock(query: str) -> Optional[dict]:
     """Find a stock by ticker or name (Arabic or English)."""
@@ -59,7 +57,6 @@ def find_stock(query: str) -> Optional[dict]:
             return stock
 
     return None
-
 
 def screen_stock(stock: dict) -> dict:
     """Run the Sharia screen on a single stock dict and merge results."""
@@ -84,13 +81,12 @@ def screen_stock(stock: dict) -> dict:
         "currency": stock.get("currency", "SAR"),
     }
 
-
 # ── FastAPI App ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Mizan API",
     description="Sharia-compliant investment screening API for Saudi Arabia",
-    version="1.3.0",
+    version="1.4.0",
 )
 
 # CORS — allow the Vercel frontend and localhost dev
@@ -108,7 +104,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ── Pydantic Models ─────────────────────────────────────────────────────────
 
 class ShariaScreenRequest(BaseModel):
@@ -125,18 +120,14 @@ class ShariaScreenRequest(BaseModel):
     non_compliant_income: float = Field(0, ge=0)
     total_revenue: float = Field(0, ge=0)
 
-
-
 class PortfolioHolding(BaseModel):
     """A single holding in a portfolio screening request."""
     ticker: str = Field(..., description="Stock ticker symbol")
     amount: float = Field(..., gt=0, description="Investment amount in the holding's currency")
 
-
 class PortfolioScreenRequest(BaseModel):
     """Request body for portfolio Sharia screening."""
     holdings: list[PortfolioHolding] = Field(..., min_length=1, description="Portfolio holdings")
-
 
 class StockBrief(BaseModel):
     """Brief stock info for list/search responses."""
@@ -145,7 +136,6 @@ class StockBrief(BaseModel):
     name_en: str
     sector_ar: str
     sector_en: str
-
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
@@ -160,7 +150,6 @@ async def health():
         "standard": "AAOIFI Standard No. 21",
         "stocks_count": len(stocks),
     }
-
 
 @app.get("/api/stocks")
 async def list_stocks(sector: Optional[str] = None):
@@ -186,7 +175,6 @@ async def list_stocks(sector: Optional[str] = None):
         )
         for s in stocks
     ]
-
 
 @app.get("/api/halal-stocks")
 async def list_halal_stocks(sector: Optional[str] = None):
@@ -230,7 +218,6 @@ async def list_halal_stocks(sector: Optional[str] = None):
         "stocks": halal_only,
     }
 
-
 @app.get("/api/stocks/{ticker}")
 async def get_stock(ticker: str):
     """Get a single stock with full Sharia compliance screening."""
@@ -239,7 +226,6 @@ async def get_stock(ticker: str):
         raise HTTPException(status_code=404, detail=f"Stock '{ticker}' not found")
 
     return screen_stock(stock)
-
 
 @app.post("/api/sharia-screen")
 async def custom_sharia_screen(req: ShariaScreenRequest):
@@ -258,7 +244,6 @@ async def custom_sharia_screen(req: ShariaScreenRequest):
         total_revenue=req.total_revenue,
     )
     return result
-
 
 @app.post("/api/portfolio-screen")
 async def screen_portfolio(req: PortfolioScreenRequest):
@@ -373,8 +358,6 @@ async def screen_portfolio(req: PortfolioScreenRequest):
         "not_found": not_found,
     }
 
-
-
 @app.get("/api/search")
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query (ticker, Arabic or English name)")
@@ -467,8 +450,119 @@ async def market_stats():
         "sectors": sectors,
         "standard": "AAOIFI Standard No. 21",
     }
-    return results
 
+@app.get("/api/market")
+async def market_overview():
+    """Comprehensive market dashboard data.
+
+    Combines sector compliance heatmap, top halal stocks by market cap,
+    compliance distribution, and key market metrics in a single call.
+    Powers the Market Dashboard page.
+    """
+    stocks = load_stocks()
+    total = len(stocks)
+
+    # Screen all stocks and collect rich data
+    all_screened = []
+    sector_map: dict[str, dict] = {}
+    verdict_counts = {"COMPLIANT": 0, "COMPLIANT_WITH_OVERLAY": 0, "COMPLIANT_WITH_PURIFICATION": 0, "NON_COMPLIANT": 0}
+
+    for s in stocks:
+        result = screen_stock(s)
+        verdict = result.get("verdict", "NON_COMPLIANT")
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+        sector_key = s.get("sector_en", "Unknown")
+        sector_ar = s.get("sector_ar", sector_key)
+
+        is_halal = verdict in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION")
+
+        stock_entry = {
+            "ticker": s["ticker"],
+            "name_en": s["name_en"],
+            "name_ar": s["name_ar"],
+            "sector_en": sector_key,
+            "sector_ar": sector_ar,
+            "market_cap": s.get("market_cap", 0),
+            "currency": s.get("currency", "SAR"),
+            "verdict": verdict,
+            "verdict_ar": result.get("verdict_ar", ""),
+            "is_halal": is_halal,
+            "debt_to_assets": result.get("debt_to_assets", 0),
+            "non_compliant_income_ratio": result.get("non_compliant_income_ratio", 0),
+        }
+        all_screened.append(stock_entry)
+
+        # Build sector heatmap
+        if sector_key not in sector_map:
+            sector_map[sector_key] = {
+                "sector_en": sector_key,
+                "sector_ar": sector_ar,
+                "total": 0,
+                "compliant": 0,
+                "non_compliant": 0,
+                "purification": 0,
+                "total_market_cap": 0,
+                "halal_market_cap": 0,
+                "stocks": [],
+            }
+
+        sector_map[sector_key]["total"] += 1
+        sector_map[sector_key]["total_market_cap"] += s.get("market_cap", 0)
+
+        if is_halal:
+            sector_map[sector_key]["compliant"] += 1
+            sector_map[sector_key]["halal_market_cap"] += s.get("market_cap", 0)
+            if verdict in ("COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+                sector_map[sector_key]["purification"] += 1
+        else:
+            sector_map[sector_key]["non_compliant"] += 1
+
+    # Finalize sector data
+    sectors = []
+    for sd in sorted(sector_map.values(), key=lambda x: x["total_market_cap"], reverse=True):
+        t = sd["total"]
+        sectors.append({
+            **sd,
+            "compliance_rate": round(sd["compliant"] / t * 100, 1) if t > 0 else 0,
+            "halal_market_share": round(sd["halal_market_cap"] / sd["total_market_cap"] * 100, 1) if sd["total_market_cap"] > 0 else 0,
+        })
+
+    halal_count = verdict_counts["COMPLIANT"] + verdict_counts["COMPLIANT_WITH_OVERLAY"] + verdict_counts["COMPLIANT_WITH_PURIFICATION"]
+
+    # Top halal stocks by market cap
+    top_halal = sorted(
+        [s for s in all_screened if s["is_halal"]],
+        key=lambda x: x["market_cap"],
+        reverse=True
+    )[:10]
+
+    # Best ratio stocks (lowest debt-to-assets among halal)
+    best_ratios = sorted(
+        [s for s in all_screened if s["is_halal"] and s["debt_to_assets"] is not None],
+        key=lambda x: x["debt_to_assets"]
+    )[:5]
+
+    total_market_cap = sum(s.get("market_cap", 0) for s in stocks)
+    halal_market_cap = sum(s["market_cap"] for s in all_screened if s["is_halal"])
+
+    return {
+        "overview": {
+            "total_stocks": total,
+            "halal_count": halal_count,
+            "halal_pct": round(halal_count / total * 100, 1) if total > 0 else 0,
+            "non_compliant_count": verdict_counts["NON_COMPLIANT"],
+            "purification_count": verdict_counts["COMPLIANT_WITH_OVERLAY"] + verdict_counts["COMPLIANT_WITH_PURIFICATION"],
+            "total_market_cap": total_market_cap,
+            "halal_market_cap": halal_market_cap,
+            "halal_market_share_pct": round(halal_market_cap / total_market_cap * 100, 1) if total_market_cap > 0 else 0,
+            "sectors_count": len(sector_map),
+            "standard": "AAOIFI Standard No. 21",
+        },
+        "verdict_distribution": verdict_counts,
+        "sectors": sectors,
+        "top_halal_stocks": top_halal,
+        "best_ratio_stocks": best_ratios,
+    }
 
 # ── Run ─────────────────────────────────────────────────────────────────────
 
