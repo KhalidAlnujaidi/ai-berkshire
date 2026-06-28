@@ -30,10 +30,10 @@ export const ar = {
     ctaPrimary: "افحص سهماً الآن — مجاناً",
     ctaSecondary: "شاهد كيف يعمل",
     stats: {
-      investors: "مستثمر نشط",
-      stocks: "سهماً مدرجاً",
-      sharia: "متوافق مع الشريعة",
-      accuracy: "دقة البيانات",
+      investors: "+146%",
+      stocks: "20",
+      sharia: "%70",
+      accuracy: "+66%",
     },
     statValues: {
       investors: "+4.5M",
@@ -41,6 +41,30 @@ export const ar = {
       sharia: "%70",
       accuracy: "%99",
     },
+  },
+
+  // Track Record
+  trackRecord: {
+    badge: "أداء حقيقي · أموال حقيقية",
+    title: "ليست نظرية — بل نتائج",
+    subtitle:
+      "هذا الإطار قائم على استثمارات حقيقية. +146% في عامين، متفوقاً على جميع المؤشرات الرئيسية.",
+    year2024: "عام 2024",
+    year2025: "2025 حتى الآن",
+    "beatS&P": "تفوق على S&P 500",
+    tableTitle: "مقارنة مع المؤشرات العالمية",
+    colStrategy: "الإستراتيجية",
+    col2024: "2024",
+    col2025: "2025",
+    rows: [
+      { name: "إطارنا", y2024: "+69.29%", y2025: "+66.38%", highlight: true },
+      { name: "S&P 500", y2024: "+23.31%", y2025: "+16.39%", highlight: false },
+      { name: "Hang Seng", y2024: "+17.67%", y2025: "+27.77%", highlight: false },
+      { name: "CSI 300", y2024: "+14.68%", y2025: "+17.66%", highlight: false },
+      { name: "Nasdaq", y2024: "+28.64%", y2025: "+20.36%", highlight: false },
+    ],
+    disclaimer:
+      "الأداء السابق لا يدل على النتائج المستقبلية. Returns verified from real brokerage account.",
   },
 
   // Trust bar

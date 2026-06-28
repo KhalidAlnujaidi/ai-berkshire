@@ -29,10 +29,10 @@ export const en: Dict = {
     ctaPrimary: "Check a stock — free",
     ctaSecondary: "See how it works",
     stats: {
-      investors: "Active investors",
-      stocks: "Listed stocks",
-      sharia: "Sharia-compliant",
-      accuracy: "Data accuracy",
+      investors: "+146%",
+      stocks: "20",
+      sharia: "70%",
+      accuracy: "+66%",
     },
     statValues: {
       investors: "4.5M+",
@@ -40,6 +40,30 @@ export const en: Dict = {
       sharia: "70%",
       accuracy: "99%",
     },
+  },
+
+  // Track Record
+  trackRecord: {
+    badge: "Real Performance · Real Money",
+    title: "Not Theory — Results",
+    subtitle:
+      "This framework is backed by real investments. +146% over two years, beating every major index.",
+    year2024: "Year 2024",
+    year2025: "2025 YTD",
+    "beatS&P": "Beat S&P 500",
+    tableTitle: "vs. Global Indices",
+    colStrategy: "Strategy",
+    col2024: "2024",
+    col2025: "2025",
+    rows: [
+      { name: "Our Framework", y2024: "+69.29%", y2025: "+66.38%", highlight: true },
+      { name: "S&P 500", y2024: "+23.31%", y2025: "+16.39%", highlight: false },
+      { name: "Hang Seng", y2024: "+17.67%", y2025: "+27.77%", highlight: false },
+      { name: "CSI 300", y2024: "+14.68%", y2025: "+17.66%", highlight: false },
+      { name: "Nasdaq", y2024: "+28.64%", y2025: "+20.36%", highlight: false },
+    ],
+    disclaimer:
+      "Past performance does not guarantee future results. Returns verified from real brokerage account.",
   },
 
   trustBar: {

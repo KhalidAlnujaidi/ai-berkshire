@@ -3,6 +3,7 @@
 import { getDict, getDirection, type Locale } from "@/i18n";
 import { useLocaleAttrs } from "@/i18n/useLocaleAttrs";
 import Navbar from "@/components/Navbar";
+import TrackRecord from "@/components/TrackRecord";
 import Hero from "@/components/Hero";
 import TrustBar from "@/components/TrustBar";
 import ShariaChecker from "@/components/ShariaChecker";
@@ -26,6 +27,7 @@ export default function HomePage({ params }: { params: { locale: string } }) {
       <main>
         <Hero dict={dict} />
         <TrustBar locale={locale} />
+        <TrackRecord dict={dict} />
         <ShariaChecker dict={dict} locale={locale} />
         <Features dict={dict} />
         <HowItWorks dict={dict} />
