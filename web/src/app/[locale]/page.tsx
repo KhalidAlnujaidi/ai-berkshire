@@ -10,6 +10,7 @@ import HalalStocksGrid from "@/components/HalalStocksGrid";
 import ShariaChecker from "@/components/ShariaChecker";
 import StockCompare from "@/components/StockCompare";
 import Features from "@/components/Features";
+import PortfolioScreener from "@/components/PortfolioScreener";
 import HowItWorks from "@/components/HowItWorks";
 import Vision2030 from "@/components/Vision2030";
 import Pricing from "@/components/Pricing";
@@ -31,6 +32,7 @@ export default function HomePage({ params }: { params: { locale: string } }) {
         <TrustBar locale={locale} />
         <TrackRecord dict={dict} />
         <HalalStocksGrid dict={dict} locale={locale} />
+        <PortfolioScreener dict={dict} locale={locale} />
         <ShariaChecker dict={dict} locale={locale} />
         <StockCompare dict={dict} locale={locale} />
         <Features dict={dict} />

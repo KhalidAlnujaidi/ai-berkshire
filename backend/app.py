@@ -7,6 +7,7 @@ Provides:
   - GET  /api/stocks/{ticker} — get single stock + Sharia verdict
   - GET  /api/halal-stocks    — list ONLY Sharia-compliant stocks (pre-filtered)
   - POST /api/sharia-screen   — screen a company with custom financial data
+  - POST /api/portfolio-screen — screen an entire portfolio (multiple holdings)
   - GET  /api/search?q=...    — search stocks by name or ticker (with verdict)
 """
 
@@ -89,7 +90,7 @@ def screen_stock(stock: dict) -> dict:
 app = FastAPI(
     title="Mizan API",
     description="Sharia-compliant investment screening API for Saudi Arabia",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 # CORS — allow the Vercel frontend and localhost dev
@@ -123,6 +124,18 @@ class ShariaScreenRequest(BaseModel):
     market_cap: float = Field(0, ge=0)
     non_compliant_income: float = Field(0, ge=0)
     total_revenue: float = Field(0, ge=0)
+
+
+
+class PortfolioHolding(BaseModel):
+    """A single holding in a portfolio screening request."""
+    ticker: str = Field(..., description="Stock ticker symbol")
+    amount: float = Field(..., gt=0, description="Investment amount in the holding's currency")
+
+
+class PortfolioScreenRequest(BaseModel):
+    """Request body for portfolio Sharia screening."""
+    holdings: list[PortfolioHolding] = Field(..., min_length=1, description="Portfolio holdings")
 
 
 class StockBrief(BaseModel):
@@ -245,6 +258,121 @@ async def custom_sharia_screen(req: ShariaScreenRequest):
         total_revenue=req.total_revenue,
     )
     return result
+
+
+@app.post("/api/portfolio-screen")
+async def screen_portfolio(req: PortfolioScreenRequest):
+    """Screen an entire investment portfolio for Sharia compliance."""
+    holdings_results = []
+    total_amount = 0.0
+    halal_amount = 0.0
+    purification_amount = 0.0
+    non_compliant_amount = 0.0
+    not_found = []
+
+    for holding in req.holdings:
+        stock = find_stock(holding.ticker)
+        if not stock:
+            not_found.append(holding.ticker)
+            continue
+
+        result = screen_stock(stock)
+        verdict = result.get("verdict", "NON_COMPLIANT")
+        total_amount += holding.amount
+
+        if verdict == "COMPLIANT":
+            halal_amount += holding.amount
+        elif verdict in ("COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+            halal_amount += holding.amount
+            purification_amount += holding.amount
+        else:
+            non_compliant_amount += holding.amount
+
+        holdings_results.append({
+            "ticker": holding.ticker,
+            "name_en": stock["name_en"],
+            "name_ar": stock["name_ar"],
+            "sector_en": stock["sector_en"],
+            "sector_ar": stock["sector_ar"],
+            "amount": holding.amount,
+            "currency": stock.get("currency", "SAR"),
+            "verdict": verdict,
+            "verdict_ar": result.get("verdict_ar", ""),
+            "verdict_detail": result.get("verdict_detail", ""),
+            "is_halal": verdict in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"),
+            "needs_purification": verdict in ("COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"),
+            "weight_pct": 0,
+        })
+
+    for h in holdings_results:
+        h["weight_pct"] = round(h["amount"] / total_amount * 100, 2) if total_amount > 0 else 0
+
+    halal_pct = round(halal_amount / total_amount * 100, 2) if total_amount > 0 else 0
+    non_compliant_pct = round(non_compliant_amount / total_amount * 100, 2) if total_amount > 0 else 0
+    purification_pct = round(purification_amount / total_amount * 100, 2) if total_amount > 0 else 0
+
+    if non_compliant_pct > 50:
+        grade = "HIGH_RISK"
+        grade_ar = "محفظة عالية المخاطر"
+    elif non_compliant_pct > 20:
+        grade = "NEEDS_REBALANCING"
+        grade_ar = "تحتاج إلى إعادة توازن"
+    elif purification_pct > 30:
+        grade = "PURIFICATION_REQUIRED"
+        grade_ar = "يلزم تنقية الدخل"
+    else:
+        grade = "SHARIA_COMPLIANT"
+        grade_ar = "متوافقة مع الشريعة"
+
+    recommendations = []
+    if non_compliant_amount > 0:
+        nc_count = len([h for h in holdings_results if h["verdict"] == "NON_COMPLIANT"])
+        recommendations.append({
+            "type": "SELL",
+            "title_en": f"Exit {nc_count} non-compliant holding(s)",
+            "title_ar": f"تخارج من {nc_count} استثمار غير متوافق",
+            "detail_en": f"{non_compliant_amount:,.0f} ({non_compliant_pct}%) of your portfolio is in non-compliant stocks.",
+            "detail_ar": f"{non_compliant_amount:,.0f} ({non_compliant_pct}%) من محفظتك في أسهم غير متوافقة.",
+            "severity": "critical",
+        })
+    if purification_amount > 0:
+        pur_count = len([h for h in holdings_results if h["needs_purification"]])
+        recommendations.append({
+            "type": "PURIFY",
+            "title_en": f"Purify income from {pur_count} holding(s)",
+            "title_ar": f"نقّ دخل {pur_count} استثمار",
+            "detail_en": f"{purification_amount:,.0f} ({purification_pct}%) of your portfolio requires income purification.",
+            "detail_ar": f"{purification_amount:,.0f} ({purification_pct}%) من محفظتك يتطلب تنقية الدخل.",
+            "severity": "warning",
+        })
+    if non_compliant_pct == 0 and purification_pct == 0:
+        recommendations.append({
+            "type": "GOOD",
+            "title_en": "Your portfolio is fully Sharia-compliant",
+            "title_ar": "محفظتك متوافقة بالكامل مع الشريعة",
+            "detail_en": "All holdings pass both qualitative and quantitative Sharia screens.",
+            "detail_ar": "جميع الاستثمارات تجتاز الفحصين النوعي والكمي.",
+            "severity": "success",
+        })
+
+    return {
+        "holdings": holdings_results,
+        "summary": {
+            "total_holdings": len(holdings_results),
+            "total_amount": total_amount,
+            "halal_amount": halal_amount,
+            "halal_pct": halal_pct,
+            "non_compliant_amount": non_compliant_amount,
+            "non_compliant_pct": non_compliant_pct,
+            "purification_amount": purification_amount,
+            "purification_pct": purification_pct,
+            "grade": grade,
+            "grade_ar": grade_ar,
+        },
+        "recommendations": recommendations,
+        "not_found": not_found,
+    }
+
 
 
 @app.get("/api/search")
