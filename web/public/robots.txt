@@ -1,0 +1,10 @@
+# Mizan — mizan-invest.com
+# Allow all crawlers full access
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://mizan-invest.com/sitemap.xml
+
+# Block API endpoints from indexing
+Disallow: /api/
