@@ -4,6 +4,7 @@ import { use, useState, useEffect } from "react";
 import { getDict, getDirection, type Locale } from "@/i18n";
 import { useLocaleAttrs } from "@/i18n/useLocaleAttrs";
 import Navbar from "@/components/Navbar";
+import StarButton from "@/components/StarButton";
 import Footer from "@/components/Footer";
 import Link from "next/link";
 
@@ -182,7 +183,16 @@ export default function StockDetailPage({
                         </span>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="flex flex-col items-end gap-3">
+                      <StarButton
+                        ticker={stock.ticker}
+                        name_en={stock.company}
+                        name_ar={stock.name_ar}
+                        sector_en={stock.sector}
+                        sector_ar={stock.sector_ar}
+                        verdict={stock.verdict}
+                        locale={locale}
+                      />
                       <div className="text-3xl">{styles.label}</div>
                     </div>
                   </div>

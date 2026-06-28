@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import StarButton from "@/components/StarButton";
 import type { Dict } from "@/i18n/ar";
 
 interface HalalStocksGridProps {
@@ -159,7 +160,7 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-mizan-green/10 rounded-full mb-4">
             <span className="w-2 h-2 bg-mizan-green rounded-full animate-pulse" />
-            <span className="text-sm font-medium text-mizan-green-dark font-arabic">
+            <span className="text34 text-sm font-medium text-mizan-green-dark font-arabic">
               {locale === "ar" ? "مفلتر مسبقاً" : "Pre-filtered"}
             </span>
           </div>
@@ -238,57 +239,72 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
             {filtered.map((stock) => {
               const isPureCompliant = stock.verdict === "COMPLIANT";
               return (
-                <Link
+                <div
                   key={`${stock.ticker}-${stock.name_en}`}
-                  href={`/${locale}/stock/${stock.ticker}`}
-                  className="group bg-white rounded-2xl border-2 border-gray-100 hover:border-mizan-green/40 hover:shadow-lg transition-all p-5 cursor-pointer relative overflow-hidden block"
+                  className="group relative bg-white rounded-2xl border-2 border-gray-100 hover:border-mizan-green/40 hover:shadow-lg transition-all p-5 overflow-hidden"
                 >
-                  {/* Verdict badge */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <span className="text-xs font-mono text-gray-400">{stock.ticker}</span>
-                      <h3 className="text-lg font-bold text-mizan-ink font-arabic mt-0.5">
-                        {locale === "ar" ? stock.name_ar : stock.name_en}
-                      </h3>
+                  {/* Star button (absolute, so it doesn't interfere with Link) */}
+                  <div className="absolute top-4 right-4 z-10">
+                    <StarButton
+                      ticker={stock.ticker}
+                      name_en={stock.name_en}
+                      name_ar={stock.name_ar}
+                      sector_en={stock.sector_en}
+                      sector_ar={stock.sector_ar}
+                      verdict={stock.verdict}
+                      locale={locale}
+                      size="sm"
+                    />
+                  </div>
+
+                  <Link href={`/${locale}/stock/${stock.ticker}`} className="block cursor-pointer">
+                    {/* Verdict badge */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="pr-12">
+                        <span className="text-xs font-mono text-gray-400">{stock.ticker}</span>
+                        <h3 className="text-lg font-bold text-mizan-ink font-arabic mt-0.5">
+                          {locale === "ar" ? stock.name_ar : stock.name_en}
+                        </h3>
+                      </div>
+                      <span
+                        className={`px-2.5 py-1 text-xs font-bold rounded-full whitespace-nowrap ${
+                          isPureCompliant
+                            ? "bg-mizan-green/15 text-mizan-green-dark"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {isPureCompliant ? "✓ Halal" : "⚠ Halal*"}
+                      </span>
                     </div>
-                    <span
-                      className={`px-2.5 py-1 text-xs font-bold rounded-full whitespace-nowrap ${
-                        isPureCompliant
-                          ? "bg-mizan-green/15 text-mizan-green-dark"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {isPureCompliant ? "✓ Halal" : "⚠ Halal*"}
-                    </span>
-                  </div>
 
-                  {/* Sector + market */}
-                  <div className="flex items-center gap-3 text-sm text-mizan-slate">
-                    <span className="font-arabic">
-                      {locale === "ar" ? stock.sector_ar : stock.sector_en}
-                    </span>
-                    {stock.market !== "saudi" && (
-                      <>
-                        <span className="text-gray-300">·</span>
-                        <span className="uppercase text-xs font-medium">{stock.market}</span>
-                      </>
-                    )}
-                  </div>
+                    {/* Sector + market */}
+                    <div className="flex items-center gap-3 text-sm text-mizan-slate">
+                      <span className="font-arabic">
+                        {locale === "ar" ? stock.sector_ar : stock.sector_en}
+                      </span>
+                      {stock.market !== "saudi" && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <span className="uppercase text-xs font-medium">{stock.market}</span>
+                        </>
+                      )}
+                    </div>
 
-                  {/* Hover detail */}
-                  <div className="mt-3 pt-3 border-t border-gray-50">
-                    <p className="text-xs text-mizan-slate/70 font-arabic line-clamp-2">
-                      {stock.verdict_detail}
-                    </p>
-                  </div>
+                    {/* Hover detail */}
+                    <div className="mt-3 pt-3 border-t border-gray-50">
+                      <p className="text-xs text-mizan-slate/70 font-arabic line-clamp-2">
+                        {stock.verdict_detail}
+                      </p>
+                    </div>
 
-                  {/* Hover arrow */}
-                  <div className="absolute bottom-4 left-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-mizan-green text-sm font-medium">
-                      {locale === "ar" ? "عرض التفاصيل ←" : "View details →"}
-                    </span>
-                  </div>
-                </Link>
+                    {/* Hover arrow */}
+                    <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-mizan-green text-sm font-medium">
+                        {locale === "ar" ? "عرض التفاصيل ←" : "View details →"}
+                      </span>
+                    </div>
+                  </Link>
+                </div>
               );
             })}
           </div>

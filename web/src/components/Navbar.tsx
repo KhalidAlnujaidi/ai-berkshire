@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import type { Dict } from "@/i18n/ar";
+import { WatchlistBadge } from "@/components/StarButton";
 
 interface NavbarProps {
   dict: Dict;
@@ -23,6 +24,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
     { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
     { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },
+    { href: `/${locale}/watchlist`, label: locale === "ar" ? "المراقبة" : "Watchlist" },
     { href: `/${locale}/learn`, label: locale === "ar" ? "تعليم" : "Learn" },
     { href: "#checker", label: dict.nav.shariaChecker },
     { href: "#features", label: dict.nav.features },
@@ -61,7 +63,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-8">
+          <div className="hidden lg:flex items-center gap-6">
             {navItems.map((item) => (
               <Link
                 key={item.href}
@@ -74,7 +76,8 @@ export default function Navbar({ dict, locale }: NavbarProps) {
           </div>
 
           {/* Actions */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
+            <WatchlistBadge locale={locale} />
             <Link
               href={switchHref}
               className="px-3 py-2 text-sm font-medium text-mizan-slate hover:text-mizan-green transition-colors rounded-lg hover:bg-mizan-green-pale"
@@ -95,25 +98,28 @@ export default function Navbar({ dict, locale }: NavbarProps) {
             </Link>
           </div>
 
-          {/* Mobile toggle */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 text-mizan-ink"
-            aria-label="Menu"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {mobileOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
+          {/* Mobile toggle + watchlist */}
+          <div className="lg:hidden flex items-center gap-2">
+            <WatchlistBadge locale={locale} />
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="p-2 text-mizan-ink"
+              aria-label="Menu"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {mobileOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Mobile menu */}
         {mobileOpen && (
-          <div className="md:hidden pb-4 animate-fade-in">
+          <div className="lg:hidden pb-4 animate-fade-in">
             <div className="flex flex-col gap-2 pt-2">
               {navItems.map((item) => (
                 <Link
