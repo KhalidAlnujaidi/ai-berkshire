@@ -2,17 +2,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY app.py .
-COPY stocks.json .
+COPY app.py auth.py database.py models.py schemas.py stocks.json ./
 
-# Expose port (Render/Railway set PORT env var)
+# Sharia screener lives in the parent tools/ directory at build time;
+# the Dockerfile context includes it via .dockerignore exception
+COPY sharia_screener.py ./sharia_screener.py
+
 ENV PORT=8000
 EXPOSE 8000
 
-# Run with uvicorn
-CMD uvicorn app:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

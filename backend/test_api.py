@@ -108,3 +108,25 @@ assert sdata['halal_count'] >= 14
 assert len(sdata['sectors']) >= 10
 
 print('\n\u2705 All tests passed!')
+
+# Test new screener endpoints
+r = client.get('/api/sectors')
+print(f'SECTORS: {r.status_code}, {len(r.json())} sectors')
+assert r.status_code == 200
+assert len(r.json()) >= 10
+
+r = client.get('/api/screen?compliance=compliant')
+print(f'SCREEN compliant: {r.status_code}, {r.json()["count"]} of {r.json()["total_universe"]}')
+assert r.status_code == 200
+assert r.json()["count"] <= r.json()["total_universe"]
+
+r = client.get('/api/screen?compliance=non_compliant&sort_by=market_cap&sort_order=desc')
+print(f'SCREEN non-compliant sorted by mcap desc: {r.status_code}, {r.json()["count"]} results')
+assert r.status_code == 200
+
+r = client.get('/api/screen?max_debt_ratio=10')
+print(f'SCREEN max_debt_ratio=10%: {r.status_code}, {r.json()["count"]} results')
+assert r.status_code == 200
+
+print()
+print('✅✅ All tests passed (including screener)!')

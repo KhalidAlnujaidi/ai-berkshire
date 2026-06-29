@@ -9,6 +9,16 @@ Provides:
   - POST /api/sharia-screen   — screen a company with custom financial data
   - POST /api/portfolio-screen — screen an entire portfolio (multiple holdings)
   - GET  /api/search?q=...    — search stocks by name or ticker (with verdict)
+
+Authentication (new):
+  - POST /api/auth/register   — create a new user account
+  - POST /api/auth/login      — authenticate and receive JWT
+  - GET  /api/auth/me         — get current user info
+
+Watchlist (new, requires auth):
+  - GET    /api/watchlist        — list user's watchlist
+  - POST   /api/watchlist        — add a stock to watchlist
+  - DELETE /api/watchlist/{ticker} — remove a stock from watchlist
 """
 
 import sys
@@ -17,16 +27,28 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 # ── Import the Sharia screener ──────────────────────────────────────────────
-# The screener lives in the parent directory (tools/sharia_screener.py)
 TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from sharia_screener import screen_company, screen_sector  # noqa: E402
+
+# ── Database + Auth imports ─────────────────────────────────────────────────
+from database import get_db, init_db, engine
+from models import User, WatchlistItem
+from auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user, get_optional_user,
+)
+from schemas import (
+    UserRegister, UserLogin, UserResponse, TokenResponse,
+    WatchlistAdd, WatchlistItemResponse,
+)
 
 # ── Stock Database ──────────────────────────────────────────────────────────
 STOCKS_FILE = Path(__file__).resolve().parent / "stocks.json"
@@ -86,7 +108,7 @@ def screen_stock(stock: dict) -> dict:
 app = FastAPI(
     title="Mizan API",
     description="Sharia-compliant investment screening API for Saudi Arabia",
-    version="1.4.0",
+    version="2.0.0",
 )
 
 # CORS — allow the Vercel frontend and localhost dev
@@ -104,7 +126,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Pydantic Models ─────────────────────────────────────────────────────────
+
+# ── Initialize database on startup ──────────────────────────────────────────
+@app.on_event("startup")
+def startup():
+    """Create database tables on startup."""
+    init_db()
+
+
+# ── Pydantic Models (Stock endpoints) ───────────────────────────────────────
 
 class ShariaScreenRequest(BaseModel):
     """Request body for custom Sharia screening."""
@@ -137,7 +167,136 @@ class StockBrief(BaseModel):
     sector_ar: str
     sector_en: str
 
-# ── Endpoints ───────────────────────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════════════
+# AUTHENTICATION ENDPOINTS
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+def register(req: UserRegister, db: Session = Depends(get_db)):
+    """Create a new user account and return a JWT token."""
+    # Check if email already taken
+    existing = db.query(User).filter(User.email == req.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists",
+        )
+
+    # Create user
+    user = User(
+        email=req.email,
+        full_name=req.full_name or None,
+        phone=req.phone or None,
+        hashed_password=hash_password(req.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # Generate token
+    token = create_access_token({"sub": str(user.id)})
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+def login(req: UserLogin, db: Session = Depends(get_db)):
+    """Authenticate a user and return a JWT token."""
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password",
+        )
+
+    token = create_access_token({"sub": str(user.id)})
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def me(current_user: User = Depends(get_current_user)):
+    """Return the currently authenticated user's profile."""
+    return UserResponse.model_validate(current_user)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WATCHLIST ENDPOINTS (requires authentication)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/watchlist", response_model=list[WatchlistItemResponse])
+def get_watchlist(current_user: User = Depends(get_current_user)):
+    """Get the current user's watchlist."""
+    items = current_user.watchlist
+    return [WatchlistItemResponse.model_validate(item) for item in items]
+
+
+@app.post("/api/watchlist", response_model=WatchlistItemResponse)
+def add_to_watchlist(
+    item: WatchlistAdd,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a stock to the current user's watchlist.
+
+    If the stock is already in the watchlist, returns the existing item
+    (idempotent — no error).
+    """
+    # Check if already exists
+    existing = db.query(WatchlistItem).filter(
+        WatchlistItem.user_id == current_user.id,
+        WatchlistItem.ticker == item.ticker,
+    ).first()
+
+    if existing:
+        return WatchlistItemResponse.model_validate(existing)
+
+    # Create new
+    wl_item = WatchlistItem(
+        user_id=current_user.id,
+        ticker=item.ticker,
+        name_en=item.name_en or None,
+        name_ar=item.name_ar or None,
+        sector_en=item.sector_en or None,
+        sector_ar=item.sector_ar or None,
+        verdict=item.verdict or None,
+    )
+    db.add(wl_item)
+    db.commit()
+    db.refresh(wl_item)
+
+    return WatchlistItemResponse.model_validate(wl_item)
+
+
+@app.delete("/api/watchlist/{ticker}")
+def remove_from_watchlist(
+    ticker: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a stock from the current user's watchlist."""
+    item = db.query(WatchlistItem).filter(
+        WatchlistItem.user_id == current_user.id,
+        WatchlistItem.ticker == ticker,
+    ).first()
+
+    if not item:
+        raise HTTPException(status_code=404, detail=f"'{ticker}' not in watchlist")
+
+    db.delete(item)
+    db.commit()
+
+    return {"status": "removed", "ticker": ticker}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STOCK SCREENING ENDPOINTS (existing — unchanged)
+# ════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/health")
 async def health():
@@ -146,9 +305,10 @@ async def health():
     return {
         "status": "ok",
         "service": "Mizan Sharia Screening API",
-        "version": "1.1.0",
+        "version": "2.0.0",
         "standard": "AAOIFI Standard No. 21",
         "stocks_count": len(stocks),
+        "auth": "enabled",
     }
 
 @app.get("/api/stocks")
@@ -383,20 +543,14 @@ async def search_stocks(
                 "sector_ar": s["sector_ar"],
                 "verdict": result.get("verdict", ""),
                 "verdict_ar": result.get("verdict_ar", ""),
-                "is_halal": result.get("verdict", "") in (
-                    "COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"
-                ),
+                "verdict_detail": result.get("verdict_detail", ""),
             })
 
     return results
 
 @app.get("/api/stats")
 async def market_stats():
-    """Aggregate Sharia compliance statistics across the entire stock universe.
-
-    Returns sector-level breakdowns of compliance rates, overall halal %,
-    and the distribution of verdicts. Powers the Education Center dashboard.
-    """
+    """Aggregate market statistics — total stocks, halal count, sectors."""
     stocks = load_stocks()
     total = len(stocks)
 
@@ -560,8 +714,126 @@ async def market_overview():
         },
         "verdict_distribution": verdict_counts,
         "sectors": sectors,
-        "top_halal_stocks": top_halal,
         "best_ratio_stocks": best_ratios,
+    }
+
+
+@app.get("/api/sectors")
+async def list_sectors():
+    """List all unique sectors with Arabic + English names.
+
+    Used by the Advanced Screener to populate the sector dropdown.
+    """
+    stocks = load_stocks()
+    seen = {}
+    for s in stocks:
+        key = s.get("sector_en", "Unknown")
+        if key not in seen:
+            seen[key] = {
+                "sector_en": key,
+                "sector_ar": s.get("sector_ar", key),
+                "count": 0,
+            }
+        seen[key]["count"] += 1
+    return sorted(seen.values(), key=lambda x: x["sector_en"])
+
+
+@app.get("/api/screen")
+async def screen_stocks(
+    compliance: Optional[str] = Query(None, description="Filter: compliant, purification, non_compliant"),
+    sector: Optional[str] = Query(None, description="Filter by sector (English name)"),
+    max_debt_ratio: Optional[float] = Query(None, ge=0, le=100, description="Max debt-to-assets ratio (%)"),
+    max_non_compliant_income: Optional[float] = Query(None, ge=0, le=100, description="Max non-compliant income ratio (%)"),
+    min_market_cap: Optional[float] = Query(None, ge=0, description="Minimum market cap"),
+    sort_by: Optional[str] = Query("ticker", description="Sort: ticker, name, market_cap, debt_ratio"),
+    sort_order: Optional[str] = Query("asc", description="asc or desc"),
+):
+    """Advanced stock screener with multiple filters and sorting."""
+    stocks = load_stocks()
+    results = []
+
+    for s in stocks:
+        result = screen_stock(s)
+        verdict = result.get("verdict", "NON_COMPLIANT")
+
+        # ── Compliance filter ──
+        if compliance:
+            if compliance == "compliant":
+                if verdict not in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+                    continue
+            elif compliance == "non_compliant":
+                if verdict != "NON_COMPLIANT":
+                    continue
+            elif compliance == "purification":
+                if verdict not in ("COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+                    continue
+
+        # ── Sector filter ──
+        if sector:
+            if s.get("sector_en", "") != sector:
+                continue
+
+        # ── Debt ratio filter ──
+        debt_ratio = result.get("debt_to_assets")
+        if debt_ratio is not None and max_debt_ratio is not None:
+            if debt_ratio * 100 > max_debt_ratio:
+                continue
+
+        # ── Non-compliant income filter ──
+        nc_ratio = result.get("non_compliant_income_ratio")
+        if nc_ratio is not None and max_non_compliant_income is not None:
+            if nc_ratio * 100 > max_non_compliant_income:
+                continue
+
+        # ── Market cap filter ──
+        market_cap = s.get("market_cap", 0)
+        if min_market_cap is not None and market_cap < min_market_cap:
+            continue
+
+        is_halal = verdict in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION")
+
+        results.append({
+            "ticker": s["ticker"],
+            "name_en": s["name_en"],
+            "name_ar": s["name_ar"],
+            "sector_en": s.get("sector_en", ""),
+            "sector_ar": s.get("sector_ar", ""),
+            "market_cap": market_cap,
+            "currency": s.get("currency", "SAR"),
+            "verdict": verdict,
+            "verdict_ar": result.get("verdict_ar", ""),
+            "is_halal": is_halal,
+            "ratios": {
+                "debt_to_assets": result.get("debt_to_assets"),
+                "debt_to_market_cap": result.get("debt_to_market_cap"),
+                "interest_investments_ratio": result.get("interest_investments_ratio"),
+                "receivables_ratio": result.get("receivables_ratio"),
+                "non_compliant_income_ratio": result.get("non_compliant_income_ratio"),
+                "illiquid_assets_ratio": result.get("illiquid_assets_ratio"),
+            },
+            "total_assets": s.get("total_assets", 0),
+            "total_revenue": s.get("total_revenue", 0),
+        })
+
+    # ── Sorting ──
+    reverse = sort_order == "desc"
+    sort_key_map = {
+        "ticker": "ticker",
+        "name": "name_en",
+        "market_cap": "market_cap",
+        "debt_ratio": "_debt_sort",
+    }
+    key = sort_key_map.get(sort_by, "ticker")
+
+    if key == "_debt_sort":
+        results.sort(key=lambda x: x["ratios"]["debt_to_assets"] if x["ratios"]["debt_to_assets"] is not None else 999, reverse=reverse)
+    else:
+        results.sort(key=lambda x: x.get(key, ""), reverse=reverse)
+
+    return {
+        "count": len(results),
+        "total_universe": len(stocks),
+        "stocks": results,
     }
 
 # ── Run ─────────────────────────────────────────────────────────────────────
