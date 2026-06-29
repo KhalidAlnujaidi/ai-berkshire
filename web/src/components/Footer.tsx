@@ -63,6 +63,16 @@ export default function Footer({ dict, locale }: FooterProps) {
                 </Link>
               </li>
               <li>
+                <Link href={`/${locale}/screener`} className="text-sm hover:text-mizan-gold transition-colors font-arabic">
+                  {locale === "ar" ? "المصفية المتقدمة" : "Stock Screener"}
+                </Link>
+              </li>
+              <li>
+                <Link href={`/${locale}/glossary`} className="text-sm hover:text-mizan-gold transition-colors font-arabic">
+                  {locale === "ar" ? "معجم المصطلحات" : "Glossary"}
+                </Link>
+              </li>
+              <li>
                 <Link href={`/${locale}/purification`} className="text-sm hover:text-mizan-gold transition-colors font-arabic">
                   {locale === "ar" ? "حاسبة التنقية" : "Purification"}
                 </Link>

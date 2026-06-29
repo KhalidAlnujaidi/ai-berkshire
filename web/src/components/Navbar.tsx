@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import type { Dict } from "@/i18n/ar";
 import { WatchlistBadge } from "@/components/StarButton";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NavbarProps {
   dict: Dict;
@@ -13,6 +14,7 @@ interface NavbarProps {
 export default function Navbar({ dict, locale }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, isAuthenticated, logout } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -21,14 +23,16 @@ export default function Navbar({ dict, locale }: NavbarProps) {
   }, []);
 
   const navItems = [
-    { href: `/${locale}/market`, label: locale === "ar" ? "السوق" : "Market" },
     { href: "#discover", label: locale === "ar" ? "الأسهم الحلال" : "Halal Stocks" },
+    { href: `/${locale}/screener`, label: locale === "ar" ? "المصفية" : "Screener" },
     { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
+    { href: `/${locale}/market`, label: locale === "ar" ? "السوق" : "Market" },
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },
     { href: `/${locale}/watchlist`, label: locale === "ar" ? "المراقبة" : "Watchlist" },
     { href: `/${locale}/learn`, label: locale === "ar" ? "تعليم" : "Learn" },
-    { href: `/${locale}/zakat`, label: locale === "ar" ? "حاسبة الزكاة" : "Zakat" },
-    { href: `/${locale}/purification`, label: locale === "ar" ? "حاسبة التنقية" : "Purify" },
+    { href: `/${locale}/glossary`, label: locale === "ar" ? "المصطلحات" : "Glossary" },
+    { href: `/${locale}/zakat`, label: locale === "ar" ? "الزكاة" : "Zakat" },
+    { href: `/${locale}/purification`, label: locale === "ar" ? "التطهير" : "Purify" },
     { href: "#checker", label: dict.nav.shariaChecker },
     { href: "#features", label: dict.nav.features },
     { href: "#pricing", label: dict.nav.pricing },
@@ -87,18 +91,38 @@ export default function Navbar({ dict, locale }: NavbarProps) {
             >
               {dict.nav.langSwitch}
             </Link>
-            <Link
-              href={`/${locale}/login`}
-              className="px-4 py-2 text-sm font-medium text-mizan-green hover:bg-mizan-green-pale rounded-lg transition-colors font-arabic"
-            >
-              {dict.nav.login}
-            </Link>
-            <Link
-              href={`/${locale}/signup`}
-              className="px-5 py-2.5 text-sm font-semibold text-white bg-mizan-green hover:bg-mizan-green-dark rounded-lg transition-colors shadow-sm font-arabic"
-            >
-              {dict.nav.signup}
-            </Link>
+
+            {isAuthenticated ? (
+              <>
+                <Link
+                  href={`/${locale}/watchlist`}
+                  className="px-4 py-2 text-sm font-medium text-mizan-slate hover:text-mizan-green transition-colors font-arabic"
+                >
+                  {user?.full_name || user?.email?.split("@")[0] || (locale === "ar" ? "حسابي" : "Account")}
+                </Link>
+                <button
+                  onClick={logout}
+                  className="px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors font-arabic"
+                >
+                  {locale === "ar" ? "خروج" : "Logout"}
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href={`/${locale}/login`}
+                  className="px-4 py-2 text-sm font-medium text-mizan-green hover:bg-mizan-green-pale rounded-lg transition-colors font-arabic"
+                >
+                  {dict.nav.login}
+                </Link>
+                <Link
+                  href={`/${locale}/signup`}
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-mizan-green hover:bg-mizan-green-dark rounded-lg transition-colors shadow-sm font-arabic"
+                >
+                  {dict.nav.signup}
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile toggle + watchlist */}
@@ -141,12 +165,40 @@ export default function Navbar({ dict, locale }: NavbarProps) {
                 >
                   {dict.nav.langSwitch}
                 </Link>
-                <Link
-                  href={`/${locale}/signup`}
-                  className="px-5 py-3 text-sm font-semibold text-white bg-mizan-green rounded-lg text-center font-arabic"
-                >
-                  {dict.nav.signup}
-                </Link>
+
+                {isAuthenticated ? (
+                  <>
+                    <div className="px-4 py-2 text-sm text-mizan-slate font-arabic">
+                      {user?.email}
+                    </div>
+                    <button
+                      onClick={() => {
+                        logout();
+                        setMobileOpen(false);
+                      }}
+                      className="px-5 py-3 text-sm font-semibold text-white bg-red-500 rounded-lg text-center font-arabic"
+                    >
+                      {locale === "ar" ? "تسجيل الخروج" : "Logout"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href={`/${locale}/login`}
+                      onClick={() => setMobileOpen(false)}
+                      className="px-5 py-3 text-sm font-semibold text-mizan-green border border-mizan-green rounded-lg text-center font-arabic"
+                    >
+                      {dict.nav.login}
+                    </Link>
+                    <Link
+                      href={`/${locale}/signup`}
+                      onClick={() => setMobileOpen(false)}
+                      className="px-5 py-3 text-sm font-semibold text-white bg-mizan-green rounded-lg text-center font-arabic"
+                    >
+                      {dict.nav.signup}
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           </div>

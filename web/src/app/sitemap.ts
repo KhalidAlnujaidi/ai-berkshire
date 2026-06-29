@@ -18,6 +18,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/zakat",
     "/purification",
     "/market",
+    "/screener",
+    "/glossary",
+    "/settings",
     "/login",
     "/signup",
   ];

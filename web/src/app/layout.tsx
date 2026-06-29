@@ -1,6 +1,7 @@
 import "./globals.css";
 
 import { Cairo, Inter, Amiri } from "next/font/google";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 // Arabic primary font — modern, clean, widely used in Saudi digital products
 const cairo = Cairo({
@@ -94,7 +95,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${cairo.variable} ${inter.variable} ${amiri.variable} antialiased`}>
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );
