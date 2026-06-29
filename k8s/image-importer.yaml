@@ -1,0 +1,56 @@
+---
+# One-shot job: imports images from the in-cluster registry into k3s containerd.
+# Uses the k3s binary (which includes ctr functionality) mounted from the host.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: image-importer
+  namespace: mizan
+spec:
+  completions: 1
+  parallelism: 1
+  template:
+    spec:
+      restartPolicy: OnFailure
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: importer
+          image: registry:2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -ex
+              # k3s binary acts as ctr wrapper; also find ctr on the host
+              K3S=/usr/local/bin/k3s
+              SOCK=/run/k3s/containerd/containerd.sock
+              # Try k3s crictl pull (uses CRI, which handles registry auth/http)
+              ${K3S} crictl pull localhost:30500/mizan-backend:latest || true
+              ${K3S} crictl pull localhost:30500/mizan-frontend:latest || true
+              echo "PULL_DONE"
+              # Also try ctr directly via k3s
+              ${K3S} ctr --address ${SOCK} images pull --plain-http localhost:30500/mizan-backend:latest || true
+              ${K3S} ctr --address ${SOCK} images pull --plain-http localhost:30500/mizan-frontend:latest || true
+              echo "IMPORT_COMPLETE"
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: k3s-bin
+              mountPath: /usr/local/bin
+              readOnly: true
+            - name: k3s-data
+              mountPath: /var/lib/rancher/k3s
+              readOnly: true
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: /run/k3s/containerd/containerd.sock
+            type: Socket
+        - name: k3s-bin
+          hostPath:
+            path: /usr/local/bin
+            type: Directory
+        - name: k3s-data
+          hostPath:
+            path: /var/lib/rancher/k3s
+            type: Directory

@@ -1,0 +1,80 @@
+# NOTE: Secrets are NOT in this file.
+# Create the secret separately from postgres-secret.yaml (gitignored).
+# See postgres-secret.example.yaml for template.
+#
+# Quick setup:
+#   cp postgres-secret.example.yaml postgres-secret.yaml
+#   # Edit with real secrets
+#   kubectl apply -f postgres-secret.yaml
+
+---
+# PostgreSQL StatefulSet with persistent storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mizan-postgres
+  namespace: mizan
+  labels:
+    app: mizan-postgres
+spec:
+  serviceName: mizan-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mizan-postgres
+  template:
+    metadata:
+      labels:
+        app: mizan-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: mizan
+            - name: POSTGRES_USER
+              value: mizan
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "mizan"]
+            periodSeconds: 5
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mizan-postgres
+  namespace: mizan
+spec:
+  selector:
+    app: mizan-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

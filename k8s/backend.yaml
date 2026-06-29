@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mizan-backend
+  namespace: mizan
+  labels:
+    app: mizan-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mizan-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: mizan-backend
+    spec:
+      containers:
+        - name: backend
+          image: localhost:30500/mizan-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: JWT_SECRET_KEY
+            - name: PORT
+              value: "8000"
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mizan-backend
+  namespace: mizan
+spec:
+  selector:
+    app: mizan-backend
+  ports:
+    - port: 8000
+      targetPort: 8000

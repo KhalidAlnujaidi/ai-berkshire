@@ -1,0 +1,56 @@
+---
+# DaemonSet: imports images into k3s containerd on ALL nodes
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-importer
+  namespace: mizan
+spec:
+  selector:
+    matchLabels:
+      app: image-importer
+  template:
+    metadata:
+      labels:
+        app: image-importer
+    spec:
+      hostNetwork: true
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: importer
+          image: registry:2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -ex
+              K3S=/usr/local/bin/k3s
+              SOCK=/run/k3s/containerd/containerd.sock
+              ${K3S} crictl pull localhost:30500/mizan-backend:latest
+              ${K3S} crictl pull localhost:30500/mizan-frontend:latest
+              echo "IMPORT_COMPLETE on $(hostname)"
+              sleep 3600
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: /run/k3s/containerd/containerd.sock
+            - name: k3s-bin
+              mountPath: /usr/local/bin
+              readOnly: true
+            - name: k3s-data
+              mountPath: /var/lib/rancher/k3s
+              readOnly: true
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: /run/k3s/containerd/containerd.sock
+            type: Socket
+        - name: k3s-bin
+          hostPath:
+            path: /usr/local/bin
+            type: Directory
+        - name: k3s-data
+          hostPath:
+            path: /var/lib/rancher/k3s
+            type: Directory
