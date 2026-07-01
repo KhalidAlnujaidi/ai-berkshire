@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.venv
+.env
+.env.production
+*.db
+*.db-journal
+.pytest_cache
+Dockerfile.dev
+mizan.db

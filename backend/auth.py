@@ -1,11 +1,16 @@
 """Authentication utilities: password hashing, JWT creation/verification.
 
 Uses passlib[bcrypt] for password hashing and python-jose (HS256) for JWT tokens.
-The secret key is read from the JWT_SECRET_KEY env var. In development a
-fixed fallback is used, but production MUST set a strong secret.
+The secret key is read from the JWT_SECRET_KEY env var.
+
+PRODUCTION SAFETY: If JWT_SECRET_KEY is unset or matches the known dev default,
+the app refuses to start in production (APP_ENV=production). This is a
+fail-closed guard — no silent insecure fallback.
 """
 
 import os
+import sys
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -18,10 +23,23 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 
+logger = logging.getLogger(__name__)
+
 # ── Config ──────────────────────────────────────────────────────────────────
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-key-CHANGE-IN-PRODUCTION-abc123")
+_DEV_FALLBACK_KEY = "dev-secret-key-CHANGE-IN-PRODUCTION-abc123"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", _DEV_FALLBACK_KEY)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+# ── Fail-closed guard ───────────────────────────────────────────────────────
+# In production, refuse to run with an insecure key.
+_is_production = os.getenv("APP_ENV", "development").lower() == "production"
+if _is_production and (SECRET_KEY == _DEV_FALLBACK_KEY or len(SECRET_KEY) < 32):
+    logger.critical(
+        "FATAL: JWT_SECRET_KEY is not set or too short (<32 chars) in production. "
+        "Set a strong random secret: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+    sys.exit(1)
 
 # ── Password hashing ────────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

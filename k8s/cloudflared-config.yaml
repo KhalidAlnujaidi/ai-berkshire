@@ -1,0 +1,14 @@
+tunnel: 375d4444-c121-456c-a0ee-90e3393bb023
+credentials-file: /etc/cloudflared/credentials/credentials.json
+ingress:
+  - hostname: juthoor.io
+    service: http://juthoor-web.default.svc.cluster.local:80
+  - hostname: mizan-invest.com
+    service: http://traefik.kube-system.svc.cluster.local:80
+    originRequest:
+      http2Origin: false
+  - hostname: www.mizan-invest.com
+    service: http://traefik.kube-system.svc.cluster.local:80
+    originRequest:
+      http2Origin: false
+  - service: http_status:404

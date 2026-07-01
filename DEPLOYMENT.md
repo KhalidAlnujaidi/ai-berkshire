@@ -3,65 +3,175 @@
 ## Architecture
 
 ```
-┌─────────────────────┐         ┌──────────────────────┐
-│   Frontend (Vercel) │ ──API──▶│  Backend (Render)    │
-│   Next.js 14        │         │  FastAPI + uvicorn   │
-│   mizan-invest.com  │         │  api.mizan-invest.com│
-└─────────────────────┘         └──────────────────────┘
+Internet ──▶ Cloudflare Tunnel ──▶ k3s Node (Traefik :80/:443)
+                                        │
+                          ┌──────────────┼──────────────┐
+                          ▼              ▼              ▼
+                    mizan-backend  mizan-frontend  mizan-postgres
+                    (FastAPI:8000) (Next.js:3000)  (PG:5432)
 ```
 
-## Backend Deployment (Render)
+All components run in a single-node **k3s** cluster. A **Cloudflare Tunnel**
+(`cloudflared`) exposes the Traefik ingress to the internet over your custom
+domain (`mizan-invest.com`), so no inbound ports need to be opened on the host.
 
-### Option A: Blueprint (recommended)
+Images are pushed from the host Docker daemon into an **in-cluster registry**
+(NodePort `30500`) and imported into k3s containerd via the `image-importer` Job.
 
-1. Push repo to GitHub
-2. Go to [Render Dashboard](https://dashboard.render.com) → New → Blueprint
-3. Select this repo
-4. Render reads `backend/render.yaml` automatically
-5. Done — the API deploys at `https://mizan-api.onrender.com`
+---
 
-### Option B: Manual
-
-1. Render Dashboard → New → Web Service
-2. Connect GitHub repo
-3. Settings:
-   - **Runtime**: Python 3
-   - **Build**: `pip install -r requirements.txt`
-   - **Start**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-   - **Health Check**: `/api/health`
-4. Add environment variable `CORS_ORIGINS` with your Vercel URL
-
-### Option C: Docker
+## Prerequisites on the host
 
 ```bash
-cd backend
-docker build -t mizan-api .
-docker run -p 8000:8000 mizan-api
+# 1. k3s installed (includes Traefik, CoreDNS, containerd)
+curl -sfL https://get.k3s.io | sh -
+
+# 2. cert-manager (for TLS via Let's Encrypt — optional if using Cloudflare's edge TLS)
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.1/cert-manager.yaml
+
+# 3. kubectl points at the cluster
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 ```
 
-## Frontend Deployment (Vercel)
+---
 
-1. Go to [Vercel](https://vercel.com) → Import Project
-2. Select the repo, set:
-   - **Root Directory**: `web`
-   - **Framework**: Next.js (auto-detected)
-3. Set environment variable:
-   - `NEXT_PUBLIC_API_URL` = your Render backend URL
-4. Deploy — Vercel reads `web/vercel.json` automatically
+## 1. Create the namespace
+
+```bash
+kubectl apply -f k8s/namespace.yaml
+```
+
+## 2. Create secrets
+
+```bash
+cp k8s/postgres-secret.example.yaml k8s/postgres-secret.yaml
+# Edit postgres-secret.yaml — fill in JWT_SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL
+kubectl apply -f k8s/postgres-secret.yaml
+```
+
+> `postgres-secret.yaml` is gitignored. **Never commit real secrets.**
+
+## 3. Build & push images to the in-cluster registry
+
+The registry runs as a NodePort service on port `30500`. From the host:
+
+```bash
+# Backend
+docker build -t localhost:30500/mizan-backend:latest backend/
+docker push localhost:30500/mizan-backend:latest
+
+# Frontend
+docker build -t localhost:30500/mizan-frontend:latest web/
+docker push localhost:30500/mizan-frontend:latest
+```
+
+> If your host Docker talks to `localhost:30500` via HTTP (insecure registry),
+> add `"insecure-registries": ["localhost:30500"]` to `/etc/docker/daemon.json`
+> and restart Docker.
+
+## 4. Import images into k3s
+
+k3s uses containerd, not Docker. Import the freshly-pushed images:
+
+```bash
+kubectl apply -f k8s/registry.yaml
+kubectl apply -f k8s/image-importer.yaml   # one-shot Job that pulls into containerd
+# verify:
+kubectl logs job/image-importer -n mizan
+```
+
+## 5. Deploy the stack
+
+```bash
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/backend.yaml
+kubectl apply -f k8s/frontend.yaml
+kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/cluster-issuer.yaml   # Let's Encrypt ClusterIssuers
+kubectl apply -f k8s/monitoring.yaml       # optional: Prometheus + ServiceMonitor
+```
+
+## 6. Set the frontend ConfigMap for production
+
+The frontend reads `NEXT_PUBLIC_API_URL` from a ConfigMap. For production:
+
+```bash
+kubectl create configmap mizan-frontend-config \
+  --from-literal=NEXT_PUBLIC_API_URL=https://mizan-invest.com/api \
+  -n mizan \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+## 7. Expose via Cloudflare Tunnel
+
+### 7a. Create the tunnel (one-time)
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create mizan          # writes credentials.json
+cloudflared tunnel route dns mizan mizan-invest.com
+cloudflared tunnel route dns mizan www.mizan-invest.com
+```
+
+### 7b. Configure & run
+
+Place the generated `credentials.json` in `cloudflared/` (it is gitignored).
+
+```bash
+# From the repo root
+./cloudflared/start-tunnel.sh
+```
+
+Or run it as a systemd service:
+
+```bash
+sudo cp cloudflared/mizan-tunnel.service /etc/systemd/system/
+sudo systemctl enable --now mizan-tunnel
+```
+
+For an in-cluster cloudflared deployment instead, see
+`k8s/cloudflared-config.yaml`.
+
+---
+
+## Verify the deployment
+
+```bash
+# Pods running?
+kubectl get pods -n mizan
+
+# Backend health
+curl http://mizan.local/api/health          # from the host
+curl https://mizan-invest.com/api/health    # from the internet
+
+# Frontend
+curl -I https://mizan-invest.com/
+
+# TLS certificate issued?
+kubectl get certificate -n mizan
+```
+
+---
 
 ## Post-Deploy Checklist
 
 - [ ] Backend health check returns 200 at `/api/health`
-- [ ] CORS configured (update `allow_origins` in `app.py` with your Vercel URL)
+- [ ] Frontend loads at `https://mizan-invest.com`
+- [ ] CORS configured (`CORS_ORIGINS` references the prod URL)
 - [ ] Sharia Checker returns results for sample tickers (1120, 2222, 7010)
 - [ ] Frontend loads in both Arabic and English
-- [ ] Track Record section displays correctly
+- [ ] Cloudflare Tunnel is connected (`cloudflared tunnel info mizan`)
+- [ ] TLS certificate is valid (no browser warnings)
+- [ ] Prometheus can scrape `/metrics` (if monitoring enabled)
 
-## Local Development
+---
+
+## Local Development (no K8s)
 
 ```bash
 # Terminal 1: Backend
 cd backend
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python app.py
 # → http://localhost:8000
@@ -74,13 +184,14 @@ npm run dev
 # → http://localhost:3000
 ```
 
-## US Market Expansion
+---
 
-The Sharia screening engine (`tools/sharia_screener.py`) is **market-agnostic** — it applies AAOIFI ratios to whatever financial data you give it. To add US stocks:
+## Troubleshooting
 
-1. Generate a template: `python3 tools/update_stocks_data.py template --ticker AAPL --market us`
-2. Fill in financials from [SEC EDGAR](https://www.sec.gov/edgar/) or yfinance
-3. Append to `backend/stocks.json`
-4. The screener handles the rest automatically
-
-The `market` field in stocks.json (`"saudi"` / `"us"` / `"hk"`) allows filtering by market in the API.
+| Symptom | Fix |
+|---------|-----|
+| `ImagePullBackOff` | Re-run `image-importer` Job after rebuilding images |
+| 502/503 from Traefik | Pod not ready — check `kubectl describe pod -n mizan` |
+| Cert stuck `Pending` | cert-manager not installed, or HTTP-01 challenge blocked |
+| Tunnel shows `connection registered` but 502 | Traefik not binding host ports; check `kubectl get svc -A` |
+| Frontend can't reach API | Wrong `NEXT_PUBLIC_API_URL` in ConfigMap; rebuild frontend image after changing |

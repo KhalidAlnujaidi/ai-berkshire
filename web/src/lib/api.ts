@@ -137,4 +137,81 @@ export const watchlistApi = {
     ),
 };
 
+// ── Research API ────────────────────────────────────────────────────────────
+
+export interface ResearchJobResponse {
+  job_id: number;
+  ticker: string;
+  status: string;
+}
+
+export interface ResearchReport {
+  id: number;
+  ticker: string;
+  company_name: string | null;
+  status: string;
+  rating: string | null;
+  summary: string | null;
+  report_markdown: string | null;
+  error: string | null;
+  is_sample: boolean;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ResearchListItem {
+  id: number;
+  ticker: string;
+  company_name: string | null;
+  status: string;
+  rating: string | null;
+  summary: string | null;
+  is_sample: boolean;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export const researchApi = {
+  start: (ticker: string) =>
+    apiFetch<ResearchJobResponse>("/api/research", {
+      method: "POST",
+      body: JSON.stringify({ ticker }),
+    }),
+
+  get: (jobId: number) =>
+    apiFetch<ResearchReport>(`/api/research/${jobId}`),
+
+  history: (limit = 20, offset = 0) =>
+    apiFetch<ResearchListItem[]>(
+      `/api/research/history?limit=${limit}&offset=${offset}`
+    ),
+
+  samples: () => apiFetch<ResearchReport[]>("/api/research/samples"),
+};
+
+// ── Billing API ─────────────────────────────────────────────────────────────
+
+export interface SubscriptionInfo {
+  is_subscribed: boolean;
+  plan: string | null;
+  status: string | null;
+  current_period_end: string | null;
+}
+
+export const billingApi = {
+  getSubscription: () =>
+    apiFetch<SubscriptionInfo>("/api/billing/subscription"),
+
+  createCheckout: (plan: string) =>
+    apiFetch<{ url: string }>("/api/billing/create-checkout-session", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    }),
+
+  createPortal: () =>
+    apiFetch<{ url: string }>("/api/billing/create-portal-session", {
+      method: "POST",
+    }),
+};
+
 export { API_BASE };

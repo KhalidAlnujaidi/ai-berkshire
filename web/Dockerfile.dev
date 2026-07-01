@@ -1,0 +1,20 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Mizan Frontend — Dev Dockerfile (hot-reload, no production hardening)
+# ──────────────────────────────────────────────────────────────────────────────
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# next.config.js has output: "standalone" but we use dev server here
+COPY next.config.js tsconfig.json tailwind.config.ts postcss.config.js ./
+COPY src ./src
+COPY public ./public
+
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

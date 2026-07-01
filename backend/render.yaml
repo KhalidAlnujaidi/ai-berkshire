@@ -1,9 +1,11 @@
-# Render Blueprint — Mizan Backend API
+# Render Blueprint — Mizan Backend API (Production)
 # Docs: https://render.com/docs/blueprint-spec
 # How to use:
 #   1. Push this repo to GitHub
 #   2. Go to https://dashboard.render.com → New → Blueprint
 #   3. Select this repo — Render will read this file automatically
+#   4. Set JWT_SECRET_KEY and DATABASE_URL in the Render dashboard
+#      (these should NOT be committed to the repo)
 
 services:
   - type: web
@@ -11,15 +13,28 @@ services:
     runtime: python
     region: frankfurt  # closest EU region to Saudi Arabia
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-2} --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      - key: APP_ENV
+        value: production
       - key: PYTHON_VERSION
         value: "3.12.0"
       - key: CORS_ORIGINS
         value: "https://mizan-invest.vercel.app,https://mizan-invest.com"
-    disk:  # Optional persistent disk if you later add SQLite/Postgres
-      name: mizan-data
-      mountPath: /opt/data
-      sizeGB: 1
+      # ── Secrets — set these in the Render dashboard ──
+      - key: JWT_SECRET_KEY
+        sync: false  # must be set manually in dashboard
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mizan-db
+          property: connectionString
+      - key: WEB_CONCURRENCY
+        value: "2"
+
+  # ── Managed PostgreSQL ──
+  - type: pserv
+    name: mizan-db
+    plan: starter  # 1 GB RAM, 1 CPU — upgrade as needed
+    ipAllowList: []  # allow connections from Render services only

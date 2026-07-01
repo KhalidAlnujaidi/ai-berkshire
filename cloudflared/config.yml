@@ -1,0 +1,12 @@
+tunnel: 507648c3-2451-4f67-9e27-096a9f8355d7
+# IMPORTANT: credentials.json is NOT committed (see .gitignore).
+# Place it next to this file on the deploy host, then set the path below.
+credentials-file: ./credentials.json
+
+ingress:
+  # k3s Traefik binds host ports 80/443, so localhost works from the host.
+  - hostname: mizan-invest.com
+    service: http://localhost:80
+  - hostname: www.mizan-invest.com
+    service: http://localhost:80
+  - service: http_status:404

@@ -1,4 +1,8 @@
 ---
+# Mizan Frontend Deployment — environment-aware
+# Dev:  NEXT_PUBLIC_API_URL=http://mizan.local/api
+# Prod: NEXT_PUBLIC_API_URL=https://mizan-invest.com/api
+#
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +25,16 @@ spec:
       labels:
         app: mizan-frontend
     spec:
+      # Spread replicas across nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: mizan-frontend
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
           image: localhost:30500/mizan-frontend:latest
@@ -36,9 +50,23 @@ spec:
               memory: "512Mi"
           env:
             - name: NEXT_PUBLIC_API_URL
-              value: "http://mizan.local/api"
+              valueFrom:
+                configMapKeyRef:
+                  name: mizan-frontend-config
+                  key: NEXT_PUBLIC_API_URL
             - name: PORT
               value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          # ── Security: non-root, no privilege escalation ──
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           startupProbe:
             httpGet:
               path: /
@@ -57,6 +85,16 @@ spec:
               port: 3000
             periodSeconds: 10
             failureThreshold: 2
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mizan-frontend-config
+  namespace: mizan
+data:
+  # Dev:  http://mizan.local/api
+  # Prod: https://mizan-invest.com/api
+  NEXT_PUBLIC_API_URL: "http://mizan.local/api"
 ---
 apiVersion: v1
 kind: Service

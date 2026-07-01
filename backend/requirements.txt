@@ -1,10 +1,32 @@
+# ── Core framework ──────────────────────────────────────────────────────────
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
+gunicorn>=21.2.0
 pydantic>=2.0.0
 pydantic[email]>=2.0.0
+
+# ── Database ─────────────────────────────────────────────────────────────────
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
+alembic>=1.13.0
+
+# ── Auth ────────────────────────────────────────────────────────────────────
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.1,<5.0.0
 python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.6
+
+# ── Rate limiting ────────────────────────────────────────────────────────────
+slowapi>=0.1.9
+
+# ── Monitoring ─────────────────────────────────────────────────────────────
+prometheus-client>=0.20.0
+
+# ── Tadawul scraping (Playwright) ───────────────────────────────────────────
+playwright>=1.48.0
+
+# ── AI Research Engine (OpenRouter — OpenAI-compatible API) ─────────────────
+openai>=1.0.0
+
+# ── Billing (Stripe) ────────────────────────────────────────────────────────
+stripe>=10.0.0

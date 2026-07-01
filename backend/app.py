@@ -27,8 +27,13 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+import logging
+from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -38,9 +43,9 @@ sys.path.insert(0, str(TOOLS_DIR))
 
 from sharia_screener import screen_company, screen_sector  # noqa: E402
 
-# ── Database + Auth imports ─────────────────────────────────────────────────
+
 from database import get_db, init_db, engine
-from models import User, WatchlistItem
+from models import User, WatchlistItem, PasswordResetToken, Holding, PriceAlert
 from auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, get_optional_user,
@@ -48,8 +53,27 @@ from auth import (
 from schemas import (
     UserRegister, UserLogin, UserResponse, TokenResponse,
     WatchlistAdd, WatchlistItemResponse,
+    PasswordResetRequest, PasswordResetConfirm,
+    PasswordChangeRequest, MessageResponse,
+    HoldingCreate, HoldingUpdate, HoldingResponse,
+    PriceAlertCreate, PriceAlertResponse,
 )
+from email_service import send_password_reset_email, send_alert_notification_email
+from stock_data import get_price, get_prices_bulk, get_price_history, clear_cache as clear_price_cache
+import tadawul_scraper
+from metrics import metrics_middleware, metrics_endpoint, PROMETHEUS_AVAILABLE
 
+# ── Research engine & billing ────────────────────────────────────────────────
+from fastapi import BackgroundTasks
+from models import ResearchReport
+from schemas import (
+    ResearchRequest, ResearchJobResponse, ResearchReportResponse,
+    ResearchListItem,
+    SubscriptionResponse, CheckoutRequest, CheckoutResponse,
+    PortalResponse,
+)
+import research_engine
+import stripe_service
 # ── Stock Database ──────────────────────────────────────────────────────────
 STOCKS_FILE = Path(__file__).resolve().parent / "stocks.json"
 
@@ -103,6 +127,10 @@ def screen_stock(stock: dict) -> dict:
         "currency": stock.get("currency", "SAR"),
     }
 
+# ── Rate Limiting ───────────────────────────────────────────────────────────
+# Fail-soft: limits are enforced but app still runs if Redis is unavailable.
+limiter = Limiter(key_func=get_remote_address)
+
 # ── FastAPI App ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -111,31 +139,70 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# CORS — allow the Vercel frontend and localhost dev
+logger = logging.getLogger(__name__)
+
+# Wire rate limiter into app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── CORS — configurable via env ─────────────────────────────────────────────
+# Comma-separated list of allowed origins. Defaults cover local dev.
+_default_origins = "http://localhost:3000,http://localhost:3001"
+_cors_env = os.getenv("CORS_ORIGINS", _default_origins)
+allow_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+# In production also allow explicit Vercel/自定义 domains
+_prod_origins = os.getenv("ALLOWED_ORIGINS", "")
+if _prod_origins:
+    allow_origins.extend([o.strip() for o in _prod_origins.split(",") if o.strip()])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://mizan-invest.com",
-        "https://www.mizan-invest.com",
-        "https://mizan-invest.vercel.app",
-    ],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+logger.info(f"CORS origins: {allow_origins}")
 
-# ── Initialize database on startup ──────────────────────────────────────────
+# ── Prometheus metrics middleware ──
+app.middleware("http")(metrics_middleware)
+
+
+# ── Structured error handling ───────────────────────────────────────────────
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return a clean 500 response.
+
+    Prevents stack traces from leaking to the client in production.
+    """
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
+# ── Initialize database on startup ─────────────────────────────────────────
 @app.on_event("startup")
 def startup():
     """Create database tables on startup."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     init_db()
 
+    # Seed demo research reports (fail-soft)
+    try:
+        from database import SessionLocal
+        _seed_db = SessionLocal()
+        research_engine.seed_sample_reports(_seed_db)
+        _seed_db.close()
+    except Exception as e:
+        logger.warning(f"Could not seed sample reports: {e}")
 
-# ── Pydantic Models (Stock endpoints) ───────────────────────────────────────
-
+    logger.info(f"Mizan API started — {len(load_stocks())} stocks loaded")
 class ShariaScreenRequest(BaseModel):
     """Request body for custom Sharia screening."""
     name: str = Field(..., description="Company name")
@@ -173,7 +240,8 @@ class StockBrief(BaseModel):
 # ════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/auth/register", response_model=TokenResponse)
-def register(req: UserRegister, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, req: UserRegister, db: Session = Depends(get_db)):
     """Create a new user account and return a JWT token."""
     # Check if email already taken
     existing = db.query(User).filter(User.email == req.email).first()
@@ -203,7 +271,8 @@ def register(req: UserRegister, db: Session = Depends(get_db)):
 
 
 @app.post("/api/auth/login", response_model=TokenResponse)
-def login(req: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, req: UserLogin, db: Session = Depends(get_db)):
     """Authenticate a user and return a JWT token."""
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not verify_password(req.password, user.hashed_password):
@@ -223,6 +292,110 @@ def login(req: UserLogin, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     """Return the currently authenticated user's profile."""
     return UserResponse.model_validate(current_user)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PASSWORD RESET ENDPOINTS
+# ════════════════════════════════════════════════════════════════════════════
+
+import secrets as _secrets
+import hashlib as _hashlib
+from datetime import datetime as _dt, timedelta as _td
+
+
+def _hash_reset_token(token: str) -> str:
+    """SHA-256 hash a reset token for storage. We never store raw tokens."""
+    return _hashlib.sha256(token.encode()).hexdigest()
+
+
+@app.post("/api/auth/password-reset/request", response_model=MessageResponse)
+@limiter.limit("3/minute")
+def request_password_reset(
+    request: Request, req: PasswordResetRequest, db: Session = Depends(get_db)
+):
+    """Initiate a password reset.
+
+    Always returns 200 ("If the email exists, a reset link has been sent")
+    regardless of whether the email exists — prevents email enumeration.
+    """
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user:
+        return MessageResponse(message="If the email exists, a reset link has been sent.")
+
+    # Invalidate any existing tokens for this user
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({"used_at": _dt.utcnow()})
+
+    # Generate a cryptographically secure token
+    raw_token = _secrets.token_urlsafe(32)
+    token_hash = _hash_reset_token(raw_token)
+    expires_at = _dt.utcnow() + _td(hours=1)
+
+    reset_record = PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(reset_record)
+    db.commit()
+
+    # Send email (fail-soft: don't fail the request if email fails)
+    try:
+        send_password_reset_email(user.email, raw_token, user.full_name)
+    except Exception as e:
+        logger.error(f"Failed to send password reset email to {user.email}: {e}")
+
+    return MessageResponse(message="If the email exists, a reset link has been sent.")
+
+
+@app.post("/api/auth/password-reset/confirm", response_model=MessageResponse)
+@limiter.limit("5/minute")
+def confirm_password_reset(
+    request: Request, req: PasswordResetConfirm, db: Session = Depends(get_db)
+):
+    """Complete a password reset using a valid token."""
+    token_hash = _hash_reset_token(req.token)
+    record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == token_hash,
+    ).first()
+
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid reset token.")
+    if record.used_at is not None:
+        raise HTTPException(status_code=400, detail="This reset token has already been used.")
+    if record.expires_at < _dt.utcnow():
+        raise HTTPException(status_code=400, detail="This reset token has expired.")
+
+    # Update password
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid reset token.")
+
+    user.hashed_password = hash_password(req.new_password)
+    record.used_at = _dt.utcnow()
+    db.commit()
+
+    return MessageResponse(message="Your password has been reset successfully.")
+
+
+@app.post("/api/auth/change-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    req: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change password for an authenticated user."""
+    if not verify_password(req.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    current_user.hashed_password = hash_password(req.new_password)
+    db.commit()
+
+    return MessageResponse(message="Your password has been changed successfully.")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -291,12 +464,300 @@ def remove_from_watchlist(
     db.delete(item)
     db.commit()
 
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PORTFOLIO ENDPOINTS (requires auth)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/portfolio")
+def get_portfolio(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the current user's portfolio with live price enrichment."""
+    holdings = db.query(Holding).filter(Holding.user_id == current_user.id).all()
+
+    if not holdings:
+        return {
+            "total_holdings": 0,
+            "total_cost": 0,
+            "total_value": 0,
+            "total_gain_loss": 0,
+            "total_gain_loss_pct": 0,
+            "holdings": [],
+        }
+
+    # Fetch live prices for all holdings in one batch
+    tickers = [h.ticker for h in holdings]
+    prices = get_prices_bulk(tickers)
+
+    enriched = []
+    total_cost = 0.0
+    total_value = 0.0
+
+    for h in holdings:
+        cost = h.quantity * h.buy_price
+        live = prices.get(h.ticker)
+        current_price = live.get("price") if live else None
+        value = h.quantity * current_price if current_price else cost
+        gain_loss = value - cost
+        gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0
+
+        total_cost += cost
+        total_value += value
+
+        enriched.append({
+            "id": h.id,
+            "ticker": h.ticker,
+            "name_en": h.name_en,
+            "name_ar": h.name_ar,
+            "sector_en": h.sector_en,
+            "sector_ar": h.sector_ar,
+            "verdict": h.verdict,
+            "quantity": h.quantity,
+            "buy_price": h.buy_price,
+            "buy_date": h.buy_date.isoformat() if h.buy_date else None,
+            "current_price": current_price,
+            "market_value": round(value, 2),
+            "cost_basis": round(cost, 2),
+            "gain_loss": round(gain_loss, 2),
+            "gain_loss_pct": round(gain_loss_pct, 2),
+            "day_change_pct": live.get("day_change_pct") if live else None,
+        })
+
+    total_gain = total_value - total_cost
+    total_gain_pct = (total_gain / total_cost * 100) if total_cost > 0 else 0
+
+    return {
+        "total_holdings": len(holdings),
+        "total_cost": round(total_cost, 2),
+        "total_value": round(total_value, 2),
+        "total_gain_loss": round(total_gain, 2),
+        "total_gain_loss_pct": round(total_gain_pct, 2),
+        "holdings": enriched,
+    }
+
+
+@app.post("/api/portfolio", response_model=HoldingResponse)
+def add_holding(
+    holding: HoldingCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a stock to the portfolio (upsert — if ticker exists, quantity averages)."""
+    existing = db.query(Holding).filter(
+        Holding.user_id == current_user.id,
+        Holding.ticker == holding.ticker,
+    ).first()
+
+    if existing:
+        # Average the buy price weighted by quantity
+        total_qty = existing.quantity + holding.quantity
+        avg_price = (
+            (existing.quantity * existing.buy_price) + (holding.quantity * holding.buy_price)
+        ) / total_qty
+        existing.quantity = total_qty
+        existing.buy_price = round(avg_price, 4)
+        if holding.buy_date:
+            existing.buy_date = holding.buy_date
+        db.commit()
+        db.refresh(existing)
+        return HoldingResponse.model_validate(existing)
+
+    new_holding = Holding(
+        user_id=current_user.id,
+        ticker=holding.ticker,
+        name_en=holding.name_en or None,
+        name_ar=holding.name_ar or None,
+        sector_en=holding.sector_en or None,
+        sector_ar=holding.sector_ar or None,
+        verdict=holding.verdict or None,
+        quantity=holding.quantity,
+        buy_price=holding.buy_price,
+        buy_date=holding.buy_date,
+    )
+    db.add(new_holding)
+    db.commit()
+    db.refresh(new_holding)
+    return HoldingResponse.model_validate(new_holding)
+
+
+@app.put("/api/portfolio/{ticker}", response_model=HoldingResponse)
+def update_holding(
+    ticker: str,
+    update: HoldingUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a holding's quantity, buy price, or buy date."""
+    holding = db.query(Holding).filter(
+        Holding.user_id == current_user.id,
+        Holding.ticker == ticker,
+    ).first()
+
+    if not holding:
+        raise HTTPException(status_code=404, detail=f"Holding '{ticker}' not found")
+
+    if update.quantity is not None:
+        holding.quantity = update.quantity
+    if update.buy_price is not None:
+        holding.buy_price = update.buy_price
+    if update.buy_date is not None:
+        holding.buy_date = update.buy_date
+
+    db.commit()
+    db.refresh(holding)
+    return HoldingResponse.model_validate(holding)
+
+
+@app.delete("/api/portfolio/{ticker}")
+def remove_holding(
+    ticker: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a holding from the portfolio."""
+    holding = db.query(Holding).filter(
+        Holding.user_id == current_user.id,
+        Holding.ticker == ticker,
+    ).first()
+
+    if not holding:
+        raise HTTPException(status_code=404, detail=f"Holding '{ticker}' not found")
+
+    db.delete(holding)
+    db.commit()
     return {"status": "removed", "ticker": ticker}
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# PRICE ALERT ENDPOINTS (requires auth)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/alerts", response_model=list[PriceAlertResponse])
+def list_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all price alerts for the current user."""
+    alerts = db.query(PriceAlert).filter(
+        PriceAlert.user_id == current_user.id,
+    ).order_by(PriceAlert.created_at.desc()).all()
+    return [PriceAlertResponse.model_validate(a) for a in alerts]
+
+
+@app.post("/api/alerts", response_model=PriceAlertResponse)
+@limiter.limit("10/minute")
+def create_alert(
+    request: Request,
+    alert: PriceAlertCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new price alert."""
+    if alert.condition not in ("above", "below"):
+        raise HTTPException(status_code=422, detail="condition must be 'above' or 'below'")
+
+    new_alert = PriceAlert(
+        user_id=current_user.id,
+        ticker=alert.ticker,
+        name_en=alert.name_en or None,
+        condition=alert.condition,
+        target_price=alert.target_price,
+    )
+    db.add(new_alert)
+    db.commit()
+    db.refresh(new_alert)
+    return PriceAlertResponse.model_validate(new_alert)
+
+
+@app.delete("/api/alerts/{alert_id}")
+def delete_alert(
+    alert_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a price alert."""
+    alert = db.query(PriceAlert).filter(
+        PriceAlert.id == alert_id,
+        PriceAlert.user_id == current_user.id,
+    ).first()
+
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    db.delete(alert)
+    db.commit()
+    return {"status": "removed", "alert_id": alert_id}
+
+
+@app.post("/api/alerts/check")
+def check_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check all active (non-triggered) alerts against current prices.
+
+    Returns a list of newly triggered alerts.
+    """
+    active = db.query(PriceAlert).filter(
+        PriceAlert.user_id == current_user.id,
+        PriceAlert.triggered == False,
+    ).all()
+
+    if not active:
+        return {"checked": 0, "triggered": []}
+
+    tickers = list({a.ticker for a in active})
+    prices = get_prices_bulk(tickers)
+    newly_triggered = []
+
+    for alert in active:
+        live = prices.get(alert.ticker)
+        if not live or live.get("price") is None:
+            continue
+
+        current = live["price"]
+        hit = (
+            (alert.condition == "above" and current >= alert.target_price)
+            or (alert.condition == "below" and current <= alert.target_price)
+        )
+
+        if hit:
+            alert.triggered = True
+            alert.triggered_at = _dt.utcnow()
+            newly_triggered.append({
+                "alert_id": alert.id,
+                "ticker": alert.ticker,
+                "name_en": alert.name_en,
+                "condition": alert.condition,
+                "target_price": alert.target_price,
+                "current_price": current,
+            })
+
+    if newly_triggered:
+        db.commit()
+        # Send email notification (fail-soft — never break the API)
+        try:
+            send_alert_notification_email(
+                current_user.email,
+                current_user.full_name or "",
+                newly_triggered,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send alert notification email to {current_user.email}: {e}")
+
+    return {"checked": len(active), "triggered": newly_triggered}
+
+# ════════════════════════════════════════════════════════════════════════════
 # STOCK SCREENING ENDPOINTS (existing — unchanged)
 # ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/metrics")
+async def prometheus_metrics(request: Request):
+    """Prometheus metrics endpoint for monitoring."""
+    return await metrics_endpoint(request)
 
 @app.get("/api/health")
 async def health():
@@ -386,6 +847,220 @@ async def get_stock(ticker: str):
         raise HTTPException(status_code=404, detail=f"Stock '{ticker}' not found")
 
     return screen_stock(stock)
+
+# ════════════════════════════════════════════════════════════════════════════
+# LIVE PRICE ENDPOINTS
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/stocks/{ticker}/price")
+async def get_stock_price(ticker: str):
+    """Get live market price for a stock.
+
+    Fetches from Yahoo Finance with caching (5-min TTL).
+    Fails soft: returns stale cached data if Yahoo is unreachable.
+    """
+    stock = find_stock(ticker)
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"Stock '{ticker}' not found")
+
+    price_data = get_price(ticker)
+    if price_data is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Price data temporarily unavailable. Please try again later.",
+        )
+
+    return {
+        **price_data,
+        "ticker": ticker,
+        "name_en": stock["name_en"],
+        "name_ar": stock["name_ar"],
+    }
+
+
+@app.get("/api/prices")
+async def get_market_prices(
+    tickers: str = Query("", description="Comma-separated tickers (max 20). Empty = all halal stocks."),
+):
+    """Get live prices for multiple stocks.
+
+    With no `tickers` param, returns prices for all Sharia-compliant stocks.
+    Fails soft: missing tickers are omitted from results.
+    """
+    all_stocks = load_stocks()
+
+    if tickers.strip():
+        requested = [t.strip() for t in tickers.split(",") if t.strip()][:20]
+    else:
+        # Default: all halal stocks
+        requested = []
+        for s in all_stocks:
+            result = screen_stock(s)
+            if result.get("verdict") in ("COMPLIANT", "COMPLIANT_WITH_OVERLAY", "COMPLIANT_WITH_PURIFICATION"):
+                requested.append(s["ticker"])
+
+    prices = get_prices_bulk(requested)
+
+    # Build response with stock names
+    stock_map = {s["ticker"]: s for s in all_stocks}
+    results = []
+    for t in requested:
+        if t in prices:
+            s = stock_map.get(t, {})
+            results.append({
+                **prices[t],
+                "name_en": s.get("name_en", ""),
+                "name_ar": s.get("name_ar", ""),
+            })
+
+    return {
+        "count": len(results),
+        "requested": len(requested),
+        "prices": results,
+    }
+
+
+@app.post("/api/prices/refresh")
+async def refresh_prices(
+    request: Request,
+    ticker: Optional[str] = Query(None, description="Single ticker to refresh, or all"),
+):
+    """Clear the price cache, forcing fresh data on next request.
+
+    Rate-limited to prevent abuse. Internal/monitoring endpoint.
+    """
+    clear_price_cache(ticker)
+    scope = f"'{ticker}'" if ticker else "all tickers"
+    logger.info(f"Price cache cleared for {scope} by {request.client.host if request.client else 'unknown'}")
+    return {"status": "ok", "message": f"Cache cleared for {scope}"}
+
+# ── Tadawul direct scraping endpoints ─────────────────────────────────────────
+# These endpoints fetch live data directly from Saudi Exchange (saudiexchange.sa)
+# via Playwright. Each scrape session takes ~6-7s; results are cached 5 minutes.
+
+@app.get("/api/tadawul/prices")
+@limiter.limit("30/minute")
+async def tadawul_all_prices(
+    request: Request,
+    ticker: Optional[str] = Query(None, description="Filter to a single ticker"),
+    halal_only: bool = Query(False, description="Only return Sharia-compliant stocks"),
+):
+    """Get live market data for all Tadawul-listed instruments via direct scrape.
+
+    Each scrape takes ~6s; results are cached for 5 minutes.
+    Fails soft: returns stale cached data if the scrape fails.
+    """
+    prices = tadawul_scraper.get_all_stock_prices()
+    if prices is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Tadawul data temporarily unavailable. Please try again later.",
+        )
+
+    if ticker:
+        t = ticker.strip()
+        single = prices.get(t)
+        if single is None:
+            raise HTTPException(status_code=404, detail=f"Ticker '{t}' not found on Tadawul")
+        return {"count": 1, "prices": [single], "cached": prices.get("cached", False), "stale": prices.get("stale", False)}
+
+    # Optionally filter to halal stocks only
+    halal_tickers = None
+    if halal_only:
+        halal_tickers = {
+            s["ticker"] for s in load_stocks()
+            if screen_stock(s).get("verdict", "").startswith("COMPLIANT")
+        }
+
+    result_list = [
+        v for v in prices.values()
+        if not halal_tickers or v.get("ticker") in halal_tickers
+    ]
+
+    return {
+        "count": len(result_list),
+        "cached": prices.get("cached", False),
+        "stale": prices.get("stale", False),
+        "prices": result_list,
+    }
+
+
+@app.get("/api/tadawul/prices/{ticker}")
+@limiter.limit("60/minute")
+async def tadawul_single_price(ticker: str, request: Request):
+    """Get live market data for a single Tadawul instrument."""
+    price = tadawul_scraper.get_stock_price(ticker)
+    if price is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ticker '{ticker}' not found on Tadawul, or data temporarily unavailable.",
+        )
+    return price
+
+
+@app.get("/api/tadawul/summary")
+@limiter.limit("30/minute")
+async def tadawul_market_summary(request: Request):
+    """Get TASI/MT30/NomuC/Sukuk index data, advancers/decliners, and market status.
+
+    Direct scrape from Saudi Exchange. Cached 5 minutes.
+    """
+    summary = tadawul_scraper.get_market_summary()
+    if summary is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Tadawul market summary temporarily unavailable.",
+        )
+    return summary
+
+
+@app.get("/api/tadawul/companies")
+@limiter.limit("20/minute")
+async def tadawul_company_directory(
+    request: Request,
+    market_type: Optional[str] = Query(None, description="Filter by market: M=Main, S=NomuC, B=Sukuk, D=Derivative"),
+    q: str = Query("", description="Search by name or symbol"),
+):
+    """Get the full Tadawul company directory (1871 instruments).
+
+    Filter by market type or search by name/symbol.
+    Cached 5 minutes.
+    """
+    companies = tadawul_scraper.get_company_directory()
+    if companies is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Tadawul company directory temporarily unavailable.",
+        )
+
+    if market_type:
+        companies = [c for c in companies if c.get("market_type") == market_type]
+
+    if q.strip():
+        ql = q.strip().lower()
+        companies = [
+            c for c in companies
+            if ql in c.get("symbol", "").lower()
+            or ql in c.get("name_en", "").lower()
+            or ql in c.get("name_ar", "")
+            or ql in c.get("trading_name_en", "").lower()
+            or ql in c.get("trading_name_ar", "")
+        ]
+
+    return {
+        "count": len(companies),
+        "cached": any(isinstance(c, dict) and c.get("cached") for c in companies if isinstance(c, dict)),
+        "companies": companies,
+    }
+
+
+@app.post("/api/tadawul/cache/refresh")
+async def tadawul_refresh_cache(request: Request):
+    """Clear the Tadawul scraper cache, forcing fresh data on next request."""
+    tadawul_scraper.clear_cache()
+    logger.info(f"Tadawul cache cleared by {request.client.host if request.client else 'unknown'}")
+    return {"status": "ok", "message": "Tadawul cache cleared"}
+
 
 @app.post("/api/sharia-screen")
 async def custom_sharia_screen(req: ShariaScreenRequest):
@@ -836,9 +1511,330 @@ async def screen_stocks(
         "stocks": results,
     }
 
-# ── Run ─────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# PRICE HISTORY ENDPOINT
+# ════════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/stocks/{ticker}/history")
+async def get_stock_history(
+    ticker: str,
+    range: str = Query("1mo", pattern="^(1mo|3mo|6mo|1y)$"),
+):
+    """Get historical price data for a stock.
+
+    Returns daily or weekly close prices from Yahoo Finance.
+    Ranges: 1mo (daily), 3mo (daily), 6mo (weekly), 1y (weekly).
+    Fails soft: returns 404 if no data available.
+    """
+    try:
+        prices = get_price_history(ticker, range)
+    except Exception as e:
+        logger.warning(f"Price history error for {ticker}: {e}")
+        prices = None
+
+    if not prices:
+        raise HTTPException(
+            status_code=404,
+            detail="Price history not available for this ticker.",
+        )
+
+    return {
+        "ticker": ticker,
+        "range": range,
+        "prices": prices,
+        "source": "Yahoo Finance",
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PORTFOLIO DIVERSIFICATION ENDPOINT (requires auth)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/portfolio/diversification")
+def portfolio_diversification(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get sector allocation breakdown for the user's portfolio.
+
+    Computes market value per holding using live prices, groups by sector,
+    and returns weight percentages with a concentration risk assessment.
+    """
+    holdings = db.query(Holding).filter(
+        Holding.user_id == current_user.id,
+    ).all()
+
+    if not holdings:
+        return {
+            "sectors": [],
+            "total_value": 0,
+            "top_sector_weight": 0,
+            "concentration_risk": "DIVERSIFIED",
+            "sector_count": 0,
+        }
+
+    # Get live prices for all holdings
+    tickers = list({h.ticker for h in holdings})
+    prices = get_prices_bulk(tickers)
+
+    # Build a lookup from stocks.json for sector info
+    stock_map = {s["ticker"]: s for s in load_stocks()}
+
+    # Compute market value per holding and group by sector
+    sector_data: dict[str, dict] = {}  # sector_en -> {market_value, holding_count, sector_ar}
+
+    for h in holdings:
+        live = prices.get(h.ticker)
+        if not live or live.get("price") is None:
+            continue
+
+        market_value = h.quantity * live["price"]
+
+        # Get sector info: prefer holding's stored sector, fall back to stocks.json
+        stock_info = stock_map.get(h.ticker, {})
+        sector_en = h.sector_en or stock_info.get("sector_en") or "Unknown"
+        sector_ar = h.sector_ar or stock_info.get("sector_ar") or "غير محدد"
+
+        if sector_en not in sector_data:
+            sector_data[sector_en] = {
+                "sector_en": sector_en,
+                "sector_ar": sector_ar,
+                "market_value": 0.0,
+                "holding_count": 0,
+            }
+        sector_data[sector_en]["market_value"] += market_value
+        sector_data[sector_en]["holding_count"] += 1
+
+    total_value = sum(s["market_value"] for s in sector_data.values())
+
+    if total_value == 0:
+        return {
+            "sectors": [],
+            "total_value": 0,
+            "top_sector_weight": 0,
+            "concentration_risk": "DIVERSIFIED",
+            "sector_count": 0,
+        }
+
+    # Compute weight percentages and sort by market value descending
+    sectors = []
+    for s in sector_data.values():
+        s["market_value"] = round(s["market_value"], 2)
+        s["weight_pct"] = round(s["market_value"] / total_value * 100, 2)
+        sectors.append(s)
+    sectors.sort(key=lambda x: x["market_value"], reverse=True)
+
+    top_sector_weight = sectors[0]["weight_pct"] if sectors else 0
+
+    if top_sector_weight > 50:
+        concentration_risk = "HIGH"
+    elif top_sector_weight > 30:
+        concentration_risk = "MODERATE"
+    else:
+        concentration_risk = "DIVERSIFIED"
+
+    return {
+        "sectors": sectors,
+        "total_value": round(total_value, 2),
+        "top_sector_weight": top_sector_weight,
+        "concentration_risk": concentration_risk,
+        "sector_count": len(sectors),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SUBSCRIPTION GUARD
+# ════════════════════════════════════════════════════════════════════════════
+
+def require_subscription(user: User = Depends(get_current_user)) -> User:
+    """Dependency: raises 402 if user is not subscribed."""
+    info = stripe_service.get_subscription_info(user)
+    if not info["is_subscribed"]:
+        raise HTTPException(
+            status_code=402,
+            detail="Subscription required to generate research reports",
+        )
+    return user
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RESEARCH ENGINE ENDPOINTS
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/research", response_model=ResearchJobResponse, status_code=201)
+@limiter.limit("5/hour")
+def start_research(
+    request: Request,
+    req: ResearchRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_subscription),
+    db: Session = Depends(get_db),
+):
+    """Start an AI investment research report for a given ticker.
+
+    Requires active subscription. Returns immediately with a job_id;
+    the report is generated asynchronously (typically 60-120 seconds).
+    """
+    ticker = req.ticker.strip().upper()
+
+    # Rate limit: max 5 reports/day
+    if not research_engine.check_daily_rate_limit(user.id, db):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily limit reached ({research_engine.DAILY_REPORT_LIMIT} reports/day). Try again tomorrow.",
+        )
+
+    # Check if a report for this ticker already exists in last 24h
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    existing = (
+        db.query(ResearchReport)
+        .filter(
+            ResearchReport.user_id == user.id,
+            ResearchReport.ticker == ticker,
+            ResearchReport.created_at >= cutoff,
+            ResearchReport.is_sample == False,
+        )
+        .order_by(ResearchReport.created_at.desc())
+        .first()
+    )
+    if existing:
+        return ResearchJobResponse(
+            job_id=existing.id, ticker=ticker, status=existing.status
+        )
+
+    # Create a pending report
+    report = ResearchReport(
+        user_id=user.id,
+        ticker=ticker,
+        status="pending",
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    # Schedule background generation
+    background_tasks.add_task(research_engine.generate_research_report, report.id)
+
+    return ResearchJobResponse(job_id=report.id, ticker=ticker, status="pending")
+
+
+
+
+
+
+
+
+@app.get("/api/research/history", response_model=list[ResearchListItem])
+def research_history(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List the user's past research reports (no markdown content)."""
+    reports = (
+        db.query(ResearchReport)
+        .filter(
+            ResearchReport.user_id == user.id,
+            ResearchReport.is_sample == False,
+        )
+        .order_by(ResearchReport.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [ResearchListItem.model_validate(r) for r in reports]
+
+@app.get("/api/research/samples", response_model=list[ResearchReportResponse])
+def research_samples(db: Session = Depends(get_db)):
+    """Get public demo research reports. No auth required.
+
+    These are full-quality reports that showcase the product.
+    """
+    reports = (
+        db.query(ResearchReport)
+        .filter(ResearchReport.is_sample == True)
+        .order_by(ResearchReport.created_at.desc())
+        .all()
+    )
+    return [ResearchReportResponse.model_validate(r) for r in reports]
+
+@app.get("/api/research/{job_id}", response_model=ResearchReportResponse)
+def get_research(
+    job_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the status and content of a research report.
+
+    Poll this endpoint after starting a research job. Status transitions:
+    pending → running → completed | failed
+    """
+    report = db.query(ResearchReport).filter(ResearchReport.id == job_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Research report not found")
+
+    # Ownership check (sample reports are viewable by everyone)
+    if not report.is_sample and report.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return ResearchReportResponse.model_validate(report)
+
+# ════════════════════════════════════════════════════════════════════════════
+# BILLING ENDPOINTS (Stripe)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/billing/subscription", response_model=SubscriptionResponse)
+def get_subscription(
+    user: User = Depends(get_current_user),
+):
+    """Check the current user's subscription status."""
+    info = stripe_service.get_subscription_info(user)
+    return SubscriptionResponse(**info)
+
+
+@app.post("/api/billing/create-checkout-session", response_model=CheckoutResponse)
+def create_checkout(
+    req: CheckoutRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a Stripe Checkout session for subscription."""
+    url = stripe_service.create_checkout_session(user, req.plan)
+    db.commit()  # commit any customer_id changes
+    return CheckoutResponse(url=url)
+
+
+@app.post("/api/billing/create-portal-session", response_model=PortalResponse)
+def create_portal(
+    user: User = Depends(get_current_user),
+):
+    """Create a Stripe Customer Portal session for subscription management."""
+    url = stripe_service.create_portal_session(user)
+    return PortalResponse(url=url)
+
+
+@app.post("/api/billing/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Stripe webhook receiver. Verifies signature and processes events."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    success = stripe_service.process_webhook_event(payload, signature, db)
+    if not success:
+        raise HTTPException(status_code=400, detail="Webhook verification failed")
+    return {"received": True}
+
+
+
+
+# ── Run ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
+    # reload=True only for local dev; production uses gunicorn (see Dockerfile)
+    is_dev = os.getenv("APP_ENV", "development") != "production"
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=is_dev)

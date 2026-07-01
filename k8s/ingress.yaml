@@ -1,8 +1,22 @@
 ---
+# Mizan Ingress — Production + Development
+#
+# Supports:
+#   - mizan.local          (dev, HTTP only)
+#   - mizan-invest.com     (prod, HTTPS via Let's Encrypt)
+#   - www.mizan-invest.com (prod, HTTPS)
+#
+# Prerequisites:
+#   1. cert-manager installed
+#   2. kubectl apply -f k8s/cluster-issuer.yaml
+#   3. DNS for mizan-invest.com and www.mizan-invest.com → this server
+#
+---
+# ── Development Ingress (mizan.local — HTTP) ──────────
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: mizan-ingress
+  name: mizan-ingress-dev
   namespace: mizan
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
@@ -26,3 +40,100 @@ spec:
                 name: mizan-frontend
                 port:
                   number: 3000
+---
+# ── Production Ingress (mizan-invest.com — HTTPS) ─────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mizan-ingress-prod
+  namespace: mizan
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - mizan-invest.com
+        - www.mizan-invest.com
+      secretName: mizan-tls
+  rules:
+    - host: mizan-invest.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-frontend
+                port:
+                  number: 3000
+    - host: www.mizan-invest.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-frontend
+                port:
+                  number: 3000
+---
+# ── HTTP→HTTPS Redirect for production domain ─────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mizan-ingress-prod-http
+  namespace: mizan
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: mizan-redirect-to-https@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: mizan-invest.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-frontend
+                port:
+                  number: 3000
+    - host: www.mizan-invest.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mizan-frontend
+                port:
+                  number: 3000
+---
+# ── Redirect Middleware (HTTP 301 → HTTPS) ────────────
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  namespace: mizan
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true

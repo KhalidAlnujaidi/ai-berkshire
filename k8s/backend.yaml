@@ -21,6 +21,16 @@ spec:
       labels:
         app: mizan-backend
     spec:
+      # Spread replicas across nodes for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: mizan-backend
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: backend
           image: localhost:30500/mizan-backend:latest
@@ -45,8 +55,29 @@ spec:
                 secretKeyRef:
                   name: mizan-secrets
                   key: JWT_SECRET_KEY
+            - name: APP_ENV
+              value: "production"
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: mizan-frontend-config
+                  key: NEXT_PUBLIC_API_URL
             - name: PORT
               value: "8000"
+          # ── Security: non-root, read-only rootfs ──
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # ── tmp volume for SQLite/caches if needed ──
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           startupProbe:
             httpGet:
               path: /api/health
@@ -65,6 +96,9 @@ spec:
               port: 8000
             periodSeconds: 10
             failureThreshold: 2
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

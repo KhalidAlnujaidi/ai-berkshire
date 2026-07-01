@@ -28,6 +28,7 @@ export default function Navbar({ dict, locale }: NavbarProps) {
     { href: `/${locale}/compare`, label: locale === "ar" ? "قارن" : "Compare" },
     { href: `/${locale}/market`, label: locale === "ar" ? "السوق" : "Market" },
     { href: `/${locale}/portfolio`, label: locale === "ar" ? "محفظتي" : "Portfolio" },
+    { href: `/${locale}/research`, label: locale === "ar" ? "الأبحاث" : "Research" },
     { href: `/${locale}/watchlist`, label: locale === "ar" ? "المراقبة" : "Watchlist" },
     { href: `/${locale}/learn`, label: locale === "ar" ? "تعليم" : "Learn" },
     { href: `/${locale}/glossary`, label: locale === "ar" ? "المصطلحات" : "Glossary" },

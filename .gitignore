@@ -11,6 +11,14 @@ k8s/postgres-secret.yaml
 backend/.env
 web/.env*
 
+# Cloudflare tunnel credentials — local only
+cloudflared/credentials.json
+.cloudflared/
+
+# Databases — local runtime only
+*.db
+backend/mizan.db
+
 # Python
 __pycache__/
 *.pyc
