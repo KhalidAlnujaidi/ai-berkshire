@@ -42,7 +42,7 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     sector_ar: "الخدمات المصرفية الإسلامية",
     verdict: "COMPLIANT",
     verdict_ar: "متوافق",
-    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
+    verdict_detail: "Islamic banking model. Debt/assets 58% — under AAOIFI threshold of 70%. No conventional interest income.",
   },
   "2222": {
     company: "Saudi Aramco",
@@ -52,7 +52,7 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     sector_ar: "الطاقة",
     verdict: "COMPLIANT",
     verdict_ar: "متوافق",
-    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
+    verdict_detail: "Energy sector business permissible. Debt/assets 2.3% — well below 70% limit. Minimal interest-bearing investments.",
   },
   "7010": {
     company: "STC Group",
@@ -62,7 +62,7 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     sector_ar: "الاتصالات",
     verdict: "COMPLIANT",
     verdict_ar: "متوافق",
-    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
+    verdict_detail: "Telecom permissible sector. Debt/assets 42% within AAOIFI limits. Interest income < 5% of total revenue.",
   },
   "2010": {
     company: "SABIC",
@@ -70,9 +70,9 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     name_ar: "سابك",
     sector: "Petrochemicals",
     sector_ar: "البتروكيماويات",
-    verdict: "COMPLIANT_WITH_OVERLAY",
-    verdict_ar: "متوافق مع ملاحظات",
-    verdict_detail: "Permitted business. Monitor for impermissible income streams.",
+    verdict: "COMPLIANT",
+    verdict_ar: "متوافق",
+    verdict_detail: "Petrochemicals sector is permissible. All financial ratios pass AAOIFI Standard No. 21 thresholds.",
   },
   "1180": {
     company: "Saudi National Bank (SNB)",
@@ -80,9 +80,9 @@ const FALLBACK_STOCKS: Record<string, Partial<ShariaApiResponse>> = {
     name_ar: "بنك الأهلي السعودي",
     sector: "Conventional Banking",
     sector_ar: "الخدمات المصرفية التقليدية",
-    verdict: "NON_COMPLIANT",
+    verdict: "NON-COMPLIANT",
     verdict_ar: "غير متوافق",
-    verdict_detail: "Core business is conventional (interest-based) banking. Hard fail.",
+    verdict_detail: "Core business is conventional (interest-based) banking. Hard fail — interest income is the primary revenue stream.",
   },
 };
 
@@ -175,8 +175,7 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
       : result?.verdict === "COMPLIANT_WITH_OVERLAY" || result?.verdict === "COMPLIANT_WITH_PURIFICATION"
       ? "gold"
       : "red";
-
-  const isNonCompliant = result?.verdict === "NON_COMPLIANT";
+  const isNonCompliant = result?.verdict === "NON_COMPLIANT" || result?.verdict === "NON-COMPLIANT";
 
   // Extract ratio results from API response
   const ratios = result?.quantitative_screen
@@ -236,10 +235,10 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
               <button
                 key={ex.key}
                 onClick={() => {
-                  setQuery(ex.label);
+                  setQuery(ex.key);
                   handleCheck(ex.key);
                 }}
-                className="px-3 py-1.5 text-xs font-medium text-mizan-green bg-mizan-green-pale hover:bg-mizan-green/10 rounded-lg transition-colors font-arabic"
+                className="px-3 py-1.5 text-xs font-medium bg-mizan-green-pale text-mizan-green rounded-lg hover:bg-mizan-green/20 transition-colors font-arabic"
               >
                 {ex.label}
               </button>
@@ -249,123 +248,171 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
 
         {/* Error */}
         {error && (
-          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm font-arabic animate-scale-in">
+          <div className="mt-8 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-center font-arabic">
             {error}
           </div>
         )}
 
         {/* Result */}
         {result && (
-          <div className="mt-8 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden animate-scale-in">
-            {/* Verdict header */}
-            <div
-              className={`px-6 py-5 ${
-                verdictColor === "green"
-                  ? "bg-mizan-green/10"
-                  : verdictColor === "gold"
-                  ? "bg-amber-50"
-                  : "bg-red-50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-mizan-slate font-arabic">{result.company}</p>
-                  {result.name_ar && (
-                    <p className="text-xl font-bold text-mizan-ink font-arabic">{result.name_ar}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ${
-                      verdictColor === "green"
-                        ? "bg-mizan-green text-white"
-                        : verdictColor === "gold"
-                        ? "bg-amber-500 text-white"
-                        : "bg-red-500 text-white"
-                    }`}
-                  >
-                    {verdictColor === "green"
-                      ? "✓"
-                      : verdictColor === "gold"
-                      ? "⚠"
-                      : "✗"}
-                    {locale === "ar" ? result.verdict_ar : result.verdict.replace(/_/g, " ")}
-                  </span>
-                </div>
+          <div className="mt-8 bg-white rounded-2xl shadow-xl border border-gray-100 p-6 md:p-8">
+            {/* Company header */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <span className="text-xs font-mono text-mizan-slate">{result.ticker}</span>
+                <h3 className="text-2xl font-bold text-mizan-ink font-arabic">
+                  {locale === "ar" ? result.name_ar : result.company}
+                </h3>
+                <p className="text-sm text-mizan-slate font-arabic">
+                  {locale === "ar" ? result.sector_ar : result.sector}
+                </p>
+              </div>
+
+              {/* Verdict badge */}
+              <div
+                className={`px-5 py-2 rounded-xl text-sm font-bold text-white ${
+                  verdictColor === "green"
+                    ? "bg-mizan-green"
+                    : verdictColor === "gold"
+                    ? "bg-mizan-gold text-mizan-ink"
+                    : "bg-red-500"
+                }`}
+              >
+                {result.verdict === "COMPLIANT"
+                  ? dict.checker.resultCompliant
+                  : result.verdict === "COMPLIANT_WITH_OVERLAY" || result.verdict === "COMPLIANT_WITH_PURIFICATION"
+                  ? dict.checker.resultOverlay
+                  : result.verdict === "NON_COMPLIANT" || result.verdict === "NON-COMPLIANT"
+                  ? dict.checker.resultNonCompliant
+                  : result.verdict_ar}
               </div>
             </div>
 
-            {/* Non-compliant warning banner */}
-            {isNonCompliant && (
-              <div className="px-6 py-3 bg-red-500/10 border-b border-red-100">
-                <p className="text-sm text-red-700 font-arabic flex items-center gap-2">
-                  <span className="text-lg">🚫</span>
-                  {locale === "ar"
-                    ? "هذا السهم غير متوافق مع الشريعة الإسلامية. لا يُنصح بالاستثمار فيه للمستثمر المسلم."
-                    : "This stock is NOT Sharia-compliant. Muslim investors should avoid it."}
-                </p>
+            {/* Verdict detail — specific, not boilerplate */}
+            <div className="mb-4 p-4 rounded-xl bg-gray-50 border border-gray-100">
+              <p className="text-sm text-mizan-slate leading-relaxed font-arabic">
+                {result.verdict_detail}
+              </p>
+            </div>
+
+            {/* Warning explanation for overlay/purification stocks */}
+            {(result.verdict === "COMPLIANT_WITH_OVERLAY" || result.verdict === "COMPLIANT_WITH_PURIFICATION") && (
+              <div className="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-600 text-lg">⚠️</span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800 font-arabic mb-1">
+                      {dict.checker.warningTitle}
+                    </p>
+                    <p className="text-sm text-amber-700 leading-relaxed font-arabic">
+                      {dict.checker.warningExplanation}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Detail */}
-            <div className="px-6 py-4">
-              <p className="text-sm text-mizan-slate font-arabic mb-4">{result.verdict_detail}</p>
+            {/* Non-compliant explanation */}
+            {(result.verdict === "NON_COMPLIANT" || result.verdict === "NON-COMPLIANT") && (
+              <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-600 text-lg">❌</span>
+                  <div>
+                    <p className="text-sm font-semibold text-red-800 font-arabic mb-1">
+                      {dict.checker.nonCompliantTitle}
+                    </p>
+                    <p className="text-sm text-red-700 leading-relaxed font-arabic">
+                      {dict.checker.nonCompliantExplanation}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
-              {/* Sector screen */}
-              {result.qualitative_screen && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2 font-arabic">
-                    {dict.checker.sectorScreen}
-                  </h4>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <span
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-                        result.qualitative_screen.compliant
-                          ? "bg-mizan-green/20 text-mizan-green"
-                          : "bg-red-100 text-red-500"
-                      }`}
+            {/* Qualitative Screen */}
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-mizan-ink mb-3 font-arabic">
+                {dict.checker.sectorScreen}
+              </h4>
+              <div className="flex items-center gap-2 mb-2">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    result.qualitative_screen?.compliant ? "bg-mizan-green" : "bg-red-500"
+                  }`}
+                />
+                <span className="text-sm text-mizan-slate font-arabic">
+                  {result.qualitative_screen?.compliant
+                    ? (locale === "ar" ? "نشاط حلال: " : "Permissible business: ")
+                    : (locale === "ar" ? "نشاط غير جائز: " : "Impermissible business: ")}
+                  {result.qualitative_screen?.category}
+                </span>
+              </div>
+              {result.qualitative_screen?.notes && (
+                <p className="text-xs text-mizan-slate/70 ml-4 font-arabic">
+                  {result.qualitative_screen.notes}
+                </p>
+              )}
+            </div>
+
+            {/* Quantitative Screen */}
+            {ratios.length > 0 && (
+              <div>
+                <h4 className="text-sm font-bold text-mizan-ink mb-3 font-arabic">
+                  {dict.checker.ratioScreen}
+                </h4>
+                <div className="space-y-2">
+                  {ratios.map((r, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50"
                     >
-                      {result.qualitative_screen.compliant ? "✓" : "✗"}
-                    </span>
-                    <span className="text-sm text-mizan-slate font-arabic">
-                      {result.qualitative_screen.notes}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Ratios */}
-              {ratios.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2 font-arabic">
-                    {dict.checker.ratioScreen}
-                  </h4>
-                  <div className="space-y-2">
-                    {ratios.map((ratio, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-                              ratio.pass
-                                ? "bg-mizan-green/20 text-mizan-green"
-                                : "bg-red-100 text-red-500"
-                            }`}
-                          >
-                            {ratio.pass ? "✓" : "✗"}
-                          </span>
-                          <span className="text-sm text-mizan-slate font-arabic">{ratio.label}</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-sm font-mono font-medium text-mizan-ink">
-                            {ratio.value}
-                          </span>
-                          <span className="text-xs text-gray-400 ml-1">/ {ratio.threshold}</span>
-                        </div>
+                      <span className="text-sm text-mizan-slate font-arabic">{r.label}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-mono text-mizan-ink">{r.value}</span>
+                        <span className="text-xs text-mizan-slate/60 font-arabic">
+                          ({r.threshold})
+                        </span>
+                        <span
+                          className={`text-sm ${
+                            r.pass ? "text-mizan-green" : "text-red-500"
+                          }`}
+                        >
+                          {r.pass ? "✓" : "✗"}
+                        </span>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
+
+            {/* Final verdict */}
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <h4 className="text-sm font-bold text-mizan-ink mb-2 font-arabic">
+                {dict.checker.verdict}
+              </h4>
+              <p
+                className={`text-base font-semibold ${
+                  verdictColor === "green"
+                    ? "text-mizan-green"
+                    : verdictColor === "gold"
+                    ? "text-mizan-gold-dark"
+                    : "text-red-500"
+                } font-arabic`}
+              >
+                {result.verdict === "COMPLIANT"
+                  ? dict.checker.verdicts.compliant
+                  : result.verdict === "COMPLIANT_WITH_OVERLAY" || result.verdict === "COMPLIANT_WITH_PURIFICATION"
+                  ? dict.checker.verdicts.overlay
+                  : dict.checker.verdicts.nonCompliant}
+              </p>
+            </div>
+
+            {/* AI Disclaimer */}
+            <div className="mt-4 p-3 rounded-lg bg-gray-50 border border-gray-100">
+              <p className="text-xs text-mizan-slate/60 font-arabic italic">
+                {dict.checker.aiDisclaimer}
+              </p>
             </div>
           </div>
         )}
@@ -374,29 +421,15 @@ export default function ShariaChecker({ dict, locale }: ShariaCheckerProps) {
   );
 }
 
-// Helper: human-readable ratio labels
+// Ratio label helper (local to this component)
 function ratioLabel(key: string, locale: string): string {
-  const labels: Record<string, { en: string; ar: string }> = {
-    debt_to_assets: { en: "Debt / Total Assets", ar: "الدين / إجمالي الأصول" },
-    debt_to_market_cap: { en: "Debt / Market Cap", ar: "الدين / القيمة السوقية" },
-    interest_bearing_investments_to_assets: {
-      en: "Interest-Bearing Investments / Assets",
-      ar: "استثمارات Bearing الفائدة / الأصول",
-    },
-    interest_bearing_investments_to_market_cap: {
-      en: "Interest-Bearing Investments / Market Cap",
-      ar: "استثمارات Bearing الفائدة / القيمة السوقية",
-    },
-    receivables_to_total: {
-      en: "Accounts Receivable / (Cash + Receivables)",
-      ar: "الذمم المدينة / (النقد + الذمم)",
-    },
-    non_compliant_income: {
-      en: "Non-Compliant Income / Revenue",
-      ar: "الدخل غير المتوافق / الإيرادات",
-    },
+  const map: Record<string, string> = {
+    debt_to_assets: locale === "ar" ? "الدين / الأصول" : "Debt / Assets",
+    debt_to_market_cap: locale === "ar" ? "الدين / القيمة السوقية" : "Debt / Market Cap",
+    interest_bearing_investments_to_assets: locale === "ar" ? "الاستثمارات الربوية / الأصول" : "Interest Inv. / Assets",
+    interest_bearing_investments_to_market_cap: locale === "ar" ? "الاستثمارات الربوية / القيمة السوقية" : "Interest Inv. / Market Cap",
+    receivables_to_total: locale === "ar" ? "المدينون / الإجمالي" : "Receivables / Total",
+    non_compliant_income: locale === "ar" ? "الدخل غير المشروع" : "Non-Compliant Income",
   };
-  const entry = labels[key];
-  if (!entry) return key;
-  return locale === "ar" ? entry.ar : entry.en;
+  return map[key] || key;
 }

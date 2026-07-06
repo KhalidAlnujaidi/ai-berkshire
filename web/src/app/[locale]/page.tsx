@@ -29,7 +29,7 @@ export default function HomePage({ params }: { params: { locale: string } }) {
       <Navbar dict={dict} locale={locale} />
       <main>
         <Hero dict={dict} />
-        <TrustBar locale={locale} />
+        <TrustBar dict={dict} />
         <TrackRecord dict={dict} />
         <HalalStocksGrid dict={dict} locale={locale} />
         <PortfolioScreener dict={dict} locale={locale} />

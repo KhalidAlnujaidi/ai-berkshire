@@ -284,6 +284,78 @@ def generate_research_report(report_id: int) -> None:
         company_name = _resolve_company_name(ticker)
         report.company_name = company_name
 
+        # ── Try the multi-agent pipeline first ────────────────────────────
+        # If it fails, fall back to the single-LLM research engine.
+        use_pipeline = os.getenv("USE_AGENT_PIPELINE", "1") == "1"
+        
+        if use_pipeline:
+            try:
+                from agent_pipeline import run_pipeline
+                
+                logger.info(f"Running multi-agent pipeline for {ticker} (report_id={report_id})")
+                result = run_pipeline(
+                    ticker=ticker,
+                    company_name=company_name,
+                    sector="",  # Will be resolved by the pipeline's data fetchers
+                )
+                
+                decision = result.get("decision", "")
+                if decision and len(decision) > 200:
+                    # Combine all agent reports into the final markdown
+                    sections = []
+                    if result.get("market_report"):
+                        sections.append("## Market Analysis\n\n" + result["market_report"])
+                    if result.get("fundamentals_report"):
+                        sections.append("## Fundamentals Analysis\n\n" + result["fundamentals_report"])
+                    if result.get("news_report"):
+                        sections.append("## News & Macro Context\n\n" + result["news_report"])
+                    if result.get("sharia_report"):
+                        sections.append("## Sharia Compliance Analysis\n\n" + result["sharia_report"])
+                    if result.get("investment_plan"):
+                        sections.append("## Investment Plan (Bull/Bear Debate)\n\n" + result["investment_plan"])
+                    if result.get("trader_investment_plan"):
+                        sections.append("## Trader Proposal\n\n" + result["trader_investment_plan"])
+                    sections.append("## Final Decision\n\n" + decision)
+                    
+                    markdown = "\n\n---\n\n".join(sections)
+                    
+                    # Parse metadata from the final decision
+                    meta = _parse_report_metadata(decision)
+                    if not meta.get("rating"):
+                        # Try to extract rating from the structured decision
+                        import re
+                        rating_match = re.search(r'\*\*Rating\*\*:\s*(.+?)(?:\n|$)', decision)
+                        if rating_match:
+                            meta["rating"] = rating_match.group(1).strip().upper()
+                        else:
+                            meta["rating"] = "HOLD"
+                    if not meta.get("summary"):
+                        # Extract executive summary
+                        summary_match = re.search(r'\*\*Executive Summary\*\*:\s*(.+?)(?:\n\n|\n\*\*|$)', decision, re.DOTALL)
+                        if summary_match:
+                            meta["summary"] = summary_match.group(1).strip()[:300]
+                        else:
+                            meta["summary"] = f"Multi-agent research report for {company_name}"
+                    
+                    report.report_markdown = markdown
+                    report.rating = meta["rating"]
+                    report.summary = meta["summary"]
+                    report.status = "completed"
+                    report.completed_at = datetime.utcnow()
+                    db.commit()
+                    logger.info(
+                        f"Research report {report_id} completed via agent pipeline: "
+                        f"{ticker} → {meta['rating']}"
+                    )
+                    return
+                else:
+                    logger.warning(f"Agent pipeline returned short result for {ticker}, falling back to single LLM")
+            except Exception as e:
+                logger.warning(f"Agent pipeline failed for {ticker} (report_id={report_id}): {e} — falling back to single LLM")
+                import traceback
+                traceback.print_exc()
+
+        # ── Fallback: single-LLM research engine ────────────────────────────
         # Gather data
         financial_data = _gather_financial_data(ticker)
         price_history = _gather_price_history_context(ticker)

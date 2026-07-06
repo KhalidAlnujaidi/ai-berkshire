@@ -40,12 +40,27 @@ _CTX = Context(prec=28, rounding=ROUND_HALF_EVEN)
 
 
 def exact(value) -> Decimal:
-    """Convert any numeric to exact Decimal, avoiding float traps."""
+    """Convert any numeric to exact Decimal, avoiding float traps.
+
+    NaN/None/empty values are coerced to 0 so downstream comparisons never
+    raise InvalidOperation.
+    """
+    if value is None:
+        return Decimal("0")
     if isinstance(value, Decimal):
-        return value
+        return value if value.is_finite() else Decimal("0")
     if isinstance(value, float):
+        if value != value:  # NaN check
+            return Decimal("0")
         return Decimal(str(value))
-    return Decimal(str(value))
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "none", "null", "n/a", "-"):
+        return Decimal("0")
+    try:
+        d = Decimal(s)
+        return d if d.is_finite() else Decimal("0")
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
 
 
 def pct(numerator, denominator) -> Decimal:
