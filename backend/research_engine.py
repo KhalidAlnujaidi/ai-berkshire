@@ -311,6 +311,7 @@ def generate_research_report(report_id: int) -> None:
                 result = run_pipeline(
                     ticker=ticker,
                     company_name=company_name,
+                    report_id=report_id,
                 )
                 
                 decision = result.get("decision", "")

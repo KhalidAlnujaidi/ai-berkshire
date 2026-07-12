@@ -48,10 +48,15 @@ from database import get_db, init_db, engine
 from models import User, WatchlistItem, PasswordResetToken, Holding, PriceAlert
 from auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, get_optional_user,
+    decode_access_token, get_current_user, get_current_user_optional,
 )
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+# ── SSE streaming for agent pipeline progress ──────────────────────────────
+from sse_starlette.sse import EventSourceResponse
+import asyncio
 from schemas import (
-    UserRegister, UserLogin, UserResponse, TokenResponse,
     WatchlistAdd, WatchlistItemResponse,
     PasswordResetRequest, PasswordResetConfirm,
     PasswordChangeRequest, MessageResponse,
@@ -1719,6 +1724,62 @@ def start_research(
     return ResearchJobResponse(job_id=report.id, ticker=ticker, status="pending")
 
 
+# ── SSE streaming endpoint — agent pipeline progress ──────────────────────
+
+
+@app.get("/api/reports/{report_id}/stream")
+async def stream_report_progress(
+    report_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """SSE endpoint that streams agent pipeline progress for a research report.
+
+    The client connects after starting a research job. The server sends
+    ``progress`` events as each agent node starts/completes, and a final
+    ``complete`` event when the pipeline finishes.
+
+    Usage (frontend):
+        const source = new EventSource(`/api/reports/${jobId}/stream`);
+        source.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            // data.agents: array of agent steps
+            // data.status: "running" | "complete"
+        };
+    """
+    from agent_pipeline.progress import get_tracker
+
+    async def event_generator():
+        tracker = get_tracker()
+        last_len = 0
+
+        while True:
+            agents = tracker.get_progress(report_id)
+            is_complete = tracker.is_complete(report_id)
+            current_len = len(agents)
+
+            # Only send if new info is available
+            if current_len != last_len or (is_complete and current_len > 0):
+                last_len = current_len
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "status": "complete" if is_complete else "running",
+                        "agents": agents,
+                    }),
+                }
+
+            if is_complete:
+                break
+
+            await asyncio.sleep(1)
+
+        yield {
+            "event": "complete",
+            "data": json.dumps({"status": "complete"}),
+        }
+
+    return EventSourceResponse(event_generator())
 
 
 

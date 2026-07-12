@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from collections.abc import Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -47,6 +49,7 @@ from agent_pipeline.risk.conservative import create_conservative_risk_debator
 from agent_pipeline.risk.neutral import create_neutral_risk_debator
 from agent_pipeline.risk.trader import create_trader
 from agent_pipeline.state import AgentState
+from agent_pipeline.progress import get_tracker
 from agent_pipeline.tools.data import (
     fetch_fundamentals_data,
     fetch_market_data,
@@ -116,18 +119,63 @@ def _analyst_sync(state) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Progress tracking wrapper
+# ---------------------------------------------------------------------------
+
+
+def _wrap_with_progress(
+    node_fn: Callable,
+    agent_name: str,
+    report_id: int = 0,
+) -> Callable:
+    """Wrap a LangGraph node to report start/done/error to the progress tracker."""
+    tracker = get_tracker() if report_id else None
+
+    def wrapped(state: dict[str, Any]) -> dict[str, Any]:
+        if tracker:
+            tracker.agent_started(report_id, agent_name)
+        try:
+            result = node_fn(state)
+            if tracker:
+                # Extract a short summary from the result
+                summary = ""
+                for key in ("market_report", "fundamentals_report", "news_report",
+                            "sharia_report", "final_trade_decision", "investment_plan",
+                            "trader_investment_plan"):
+                    val = result.get(key, "")
+                    if val and isinstance(val, str) and len(val) > 20:
+                        summary = val[:120].replace("\n", " ").strip()
+                        break
+                tracker.agent_completed(report_id, agent_name, summary)
+            return result
+        except Exception as e:
+            if tracker:
+                tracker.agent_error(report_id, agent_name, str(e))
+            raise
+
+    return wrapped
+
+
+# ---------------------------------------------------------------------------
 # Graph construction
 # ---------------------------------------------------------------------------
 
 
-def build_graph():
-    """Construct and compile the Mizan 12-node LangGraph pipeline.
+def build_graph(report_id: int = 0):
+    """Construct and compile the Mizan 13-node LangGraph pipeline.
 
-    The four analyst nodes run in PARALLEL (fan-out from START, fan-in at
-    ``analyst_sync``).  The debate and risk phases are conditional — they
-    bypass directly to the next stage when rounds == 0.
+    Parameters
+    ----------
+    report_id : int
+        If > 0, progress updates are reported to the ProgressTracker.
+        Pass 0 to disable progress reporting (standalone usage).
     """
     graph = StateGraph(AgentState)
+
+
+    def wn(name: str, fn: Callable) -> Callable:
+        """Shortcut: add progress wrap then node."""
+        return _wrap_with_progress(fn, name, report_id)
 
     # ── Instantiate factory-based nodes ───────────────────────────────
     bull_researcher = create_bull_researcher()
@@ -139,22 +187,20 @@ def build_graph():
     neutral_debator = create_neutral_risk_debator()
     portfolio_manager = create_portfolio_manager()
 
-    # ── Add all nodes ─────────────────────────────────────────────────
-    # 4 analysts + 1 sync + 2 researchers + research manager +
-    # trader + 3 risk debaters + portfolio manager = 13
-    graph.add_node("market_analyst", market_analyst_node)
-    graph.add_node("fundamentals_analyst", fundamentals_analyst_node)
-    graph.add_node("news_analyst", news_analyst_node)
-    graph.add_node("sharia_analyst", sharia_analyst_node)
-    graph.add_node("analyst_sync", _analyst_sync)
-    graph.add_node("bull_researcher", bull_researcher)
-    graph.add_node("bear_researcher", bear_researcher)
-    graph.add_node("research_manager", research_manager)
-    graph.add_node("trader", trader)
-    graph.add_node("aggressive_debator", aggressive_debator)
-    graph.add_node("conservative_debator", conservative_debator)
-    graph.add_node("neutral_debator", neutral_debator)
-    graph.add_node("portfolio_manager", portfolio_manager)
+    # ── Add all nodes (wrapped with progress tracking) ────────────────
+    graph.add_node("market_analyst", wn("market_analyst", market_analyst_node))
+    graph.add_node("fundamentals_analyst", wn("fundamentals_analyst", fundamentals_analyst_node))
+    graph.add_node("news_analyst", wn("news_analyst", news_analyst_node))
+    graph.add_node("sharia_analyst", wn("sharia_analyst", sharia_analyst_node))
+    graph.add_node("analyst_sync", wn("analyst_sync", _analyst_sync))
+    graph.add_node("bull_researcher", wn("bull_researcher", bull_researcher))
+    graph.add_node("bear_researcher", wn("bear_researcher", bear_researcher))
+    graph.add_node("research_manager", wn("research_manager", research_manager))
+    graph.add_node("trader", wn("trader", trader))
+    graph.add_node("aggressive_debator", wn("aggressive_debator", aggressive_debator))
+    graph.add_node("conservative_debator", wn("conservative_debator", conservative_debator))
+    graph.add_node("neutral_debator", wn("neutral_debator", neutral_debator))
+    graph.add_node("portfolio_manager", wn("portfolio_manager", portfolio_manager))
 
     # ── Parallel analyst fan-out ──────────────────────────────────────
     graph.add_edge(START, "market_analyst")
@@ -227,6 +273,7 @@ def run_pipeline(
     company_name: str = "",
     sector: str = "",
     financial_data: dict | None = None,
+    report_id: int = 0,
 ) -> dict:
     """Run the full Mizan agent pipeline for a single ticker.
 
@@ -239,10 +286,9 @@ def run_pipeline(
     sector : str
         GICS-style sector name — used for Sharia qualitative screen.
     financial_data : dict | None
-        Optional balance-sheet metrics for the Sharia quantitative screen
-        (``total_assets``, ``total_debt``, ``interest_bearing_investments``,
-        ``accounts_receivable``, ``cash_and_equivalents``, ``market_cap``,
-        ``non_compliant_income``, ``total_revenue``).
+        Optional balance-sheet metrics for the Sharia quantitative screen.
+    report_id : int
+        Database report ID for SSE progress tracking. 0 = no tracking.
 
     Returns
     -------
@@ -263,7 +309,7 @@ def run_pipeline(
     auto_raw = yf_fin.get("raw", {})
     merged_financials = {**auto_raw, **financial_data}
 
-    graph = build_graph()
+    graph = build_graph(report_id=report_id)
 
     # ── Pre-fetch all data before the first node runs ────────────────
     initial_state: dict = {
@@ -317,6 +363,11 @@ def run_pipeline(
 
     # ── Invoke the compiled graph ────────────────────────────────────
     result = graph.invoke(initial_state, {"recursion_limit": MAX_RECUR_LIMIT})
+
+    # ── Mark pipeline complete for SSE progress tracking ────────────
+    if report_id:
+        from agent_pipeline.progress import get_tracker
+        get_tracker().all_completed(report_id)
 
     # ── Store decision in memory log ──────────────────────────────────
     try:
