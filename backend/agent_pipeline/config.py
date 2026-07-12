@@ -36,10 +36,12 @@ MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "12000"))
 # ── Pipeline behaviour ──────────────────────────────────────────────────────
 
 # How many rounds of bull ↔ bear debate before the Research Manager decides.
-MAX_DEBATE_ROUNDS = int(os.getenv("AGENT_MAX_DEBATE_ROUNDS", "1"))
+# 0 = skip debate entirely (fast mode, default). Set to 1-2 for deep analysis.
+MAX_DEBATE_ROUNDS = int(os.getenv("AGENT_MAX_DEBATE_ROUNDS", "0"))
 
 # How many rounds of aggressive ↔ conservative ↔ neutral risk debate.
-MAX_RISK_DISCUSS_ROUNDS = int(os.getenv("AGENT_MAX_RISK_ROUNDS", "1"))
+# 0 = skip risk debate entirely (fast mode, default). Set to 1-2 for deep analysis.
+MAX_RISK_DISCUSS_ROUNDS = int(os.getenv("AGENT_MAX_RISK_ROUNDS", "0"))
 
 # Output language for analyst reports and the final decision.
 # Internal agent debate stays in English for reasoning quality.

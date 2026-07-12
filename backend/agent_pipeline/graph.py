@@ -2,11 +2,18 @@
 
 Wires all 12 Mizan agent nodes into a single compiled graph:
 
-    Market Analyst → Fundamentals Analyst → News Analyst → Sharia Analyst
-        → Bull Researcher ↔ Bear Researcher  (debate, MAX_DEBATE_ROUNDS)
+    ┌─ Market Analyst ─┐
+    ├─ Fundamentals ───┤
+    ├─ News Analyst ───┤  (parallel fan-out)
+    └─ Sharia Analyst ─┘
+        → [sync] → Bull ↔ Bear Researcher  (debate, if MAX_DEBATE_ROUNDS > 0)
         → Research Manager → Trader
-        → Aggressive ↔ Conservative ↔ Neutral  (risk debate, MAX_RISK_DISCUSS_ROUNDS)
+        → Aggressive ↔ Conservative ↔ Neutral  (risk debate, if MAX_RISK_DISCUSS_ROUNDS > 0)
         → Portfolio Manager (final decision)
+
+The first four analysts run in PARALLEL (they each consume pre-fetched
+data and write independent reports).  A no-op sync node collects them
+before the debate phase begins.
 
 The graph is constructed with ``StateGraph(AgentState)`` and compiled once
 per ``run_pipeline`` call.  ``run_pipeline`` pre-fetches all data, invokes
@@ -62,6 +69,9 @@ def debate_router(state) -> str:
     Each full round = bull speaks + bear speaks, so we need
     ``MAX_DEBATE_ROUNDS * 2`` total turns.  ``count`` is incremented by each
     researcher node, so the threshold is ``MAX_DEBATE_ROUNDS * 2``.
+
+    When MAX_DEBATE_ROUNDS is 0, the condition ``count >= 0`` is immediately
+    True, so we route directly to the Research Manager.
     """
     debate = state.get("investment_debate_state") or {}
     count = debate.get("count", 0)
@@ -73,10 +83,36 @@ def risk_router(state) -> str:
 
     Each full round = aggressive + conservative + neutral (3 turns), so the
     threshold is ``MAX_RISK_DISCUSS_ROUNDS * 3``.
+
+    When MAX_RISK_DISCUSS_ROUNDS is 0, the condition ``count >= 0`` is
+    immediately True, so we route directly to the Portfolio Manager.
     """
     debate = state.get("risk_debate_state") or {}
     count = debate.get("count", 0)
     return "end" if count >= MAX_RISK_DISCUSS_ROUNDS * 3 else "next"
+
+
+# ---------------------------------------------------------------------------
+# Synchronisation node (parallel fan-in)
+# ---------------------------------------------------------------------------
+
+
+def _analyst_sync(state) -> dict:
+    """No-op synchronisation point for the four parallel analysts.
+
+    LangGraph waits for ALL incoming edges before running this node,
+    which guarantees all four analyst reports are written before the
+    debate phase begins.  The node itself does nothing — the reports
+    were written by the analyst nodes.
+    """
+    logger.info(
+        "Analyst sync: market=%d fund=%d news=%d sharia=%d",
+        len(state.get("market_report", "") or ""),
+        len(state.get("fundamentals_report", "") or ""),
+        len(state.get("news_report", "") or ""),
+        len(state.get("sharia_report", "") or ""),
+    )
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +121,12 @@ def risk_router(state) -> str:
 
 
 def build_graph():
-    """Construct and compile the Mizan 12-node LangGraph pipeline."""
+    """Construct and compile the Mizan 12-node LangGraph pipeline.
+
+    The four analyst nodes run in PARALLEL (fan-out from START, fan-in at
+    ``analyst_sync``).  The debate and risk phases are conditional — they
+    bypass directly to the next stage when rounds == 0.
+    """
     graph = StateGraph(AgentState)
 
     # ── Instantiate factory-based nodes ───────────────────────────────
@@ -98,11 +139,14 @@ def build_graph():
     neutral_debator = create_neutral_risk_debator()
     portfolio_manager = create_portfolio_manager()
 
-    # ── Add all 12 nodes ──────────────────────────────────────────────
+    # ── Add all nodes ─────────────────────────────────────────────────
+    # 4 analysts + 1 sync + 2 researchers + research manager +
+    # trader + 3 risk debaters + portfolio manager = 13
     graph.add_node("market_analyst", market_analyst_node)
     graph.add_node("fundamentals_analyst", fundamentals_analyst_node)
     graph.add_node("news_analyst", news_analyst_node)
     graph.add_node("sharia_analyst", sharia_analyst_node)
+    graph.add_node("analyst_sync", _analyst_sync)
     graph.add_node("bull_researcher", bull_researcher)
     graph.add_node("bear_researcher", bear_researcher)
     graph.add_node("research_manager", research_manager)
@@ -112,14 +156,24 @@ def build_graph():
     graph.add_node("neutral_debator", neutral_debator)
     graph.add_node("portfolio_manager", portfolio_manager)
 
-    # ── Linear analyst chain ──────────────────────────────────────────
+    # ── Parallel analyst fan-out ──────────────────────────────────────
     graph.add_edge(START, "market_analyst")
-    graph.add_edge("market_analyst", "fundamentals_analyst")
-    graph.add_edge("fundamentals_analyst", "news_analyst")
-    graph.add_edge("news_analyst", "sharia_analyst")
-    graph.add_edge("sharia_analyst", "bull_researcher")
+    graph.add_edge(START, "fundamentals_analyst")
+    graph.add_edge(START, "news_analyst")
+    graph.add_edge(START, "sharia_analyst")
+
+    # ── Fan-in: sync after ALL four analysts complete ─────────────────
+    graph.add_edge("market_analyst", "analyst_sync")
+    graph.add_edge("fundamentals_analyst", "analyst_sync")
+    graph.add_edge("news_analyst", "analyst_sync")
+    graph.add_edge("sharia_analyst", "analyst_sync")
 
     # ── Bull ↔ Bear debate (conditional) ─────────────────────────────
+    graph.add_conditional_edges(
+        "analyst_sync",
+        debate_router,
+        {"continue": "bull_researcher", "end": "research_manager"},
+    )
     graph.add_conditional_edges(
         "bull_researcher",
         debate_router,
@@ -133,10 +187,14 @@ def build_graph():
 
     # ── Research Manager → Trader → Risk debate ───────────────────────
     graph.add_edge("research_manager", "trader")
-    graph.add_edge("trader", "aggressive_debator")
+
+    graph.add_conditional_edges(
+        "trader",
+        risk_router,
+        {"next": "aggressive_debator", "end": "portfolio_manager"},
+    )
 
     # ── Risk debate round-robin (conditional) ─────────────────────────
-    #   aggressive → conservative → neutral → (loop or end)
     graph.add_conditional_edges(
         "aggressive_debator",
         risk_router,
@@ -212,7 +270,7 @@ def run_pipeline(
         "company_of_interest": ticker,
         "trade_date": datetime.now().strftime("%Y-%m-%d"),
         "messages": [],
-        "instrument_context": None,  # will use default from get_instrument_context_from_state
+        "instrument_context": None,
         "price_data": fetch_market_data(ticker),
         "financial_data": fetch_fundamentals_data(ticker),
         "news_data": fetch_news_data(ticker),

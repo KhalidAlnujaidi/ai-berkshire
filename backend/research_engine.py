@@ -298,17 +298,19 @@ def generate_research_report(report_id: int) -> None:
 
         # ── Try the multi-agent pipeline first ────────────────────────────
         # If it fails, fall back to the single-LLM research engine.
-        use_pipeline = os.getenv("USE_AGENT_PIPELINE", "1") == "1"
+        # Pipeline is enabled by default. Set USE_AGENT_PIPELINE=0 to
+        # disable and use only the single-LLM engine.
+        use_pipeline = os.getenv("USE_AGENT_PIPELINE", "1") != "0"
         
         if use_pipeline:
             try:
                 from agent_pipeline import run_pipeline
-                
+
                 logger.info(f"Running multi-agent pipeline for {ticker} (report_id={report_id})")
+                # Pipeline auto-detects sector/company/financials from yfinance
                 result = run_pipeline(
                     ticker=ticker,
                     company_name=company_name,
-                    sector="",  # Will be resolved by the pipeline's data fetchers
                 )
                 
                 decision = result.get("decision", "")

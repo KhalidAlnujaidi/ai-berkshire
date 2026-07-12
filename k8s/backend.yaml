@@ -64,6 +64,22 @@ spec:
                   key: NEXT_PUBLIC_API_URL
             - name: PORT
               value: "8000"
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: OPENROUTER_API_KEY
+            - name: RESEARCH_MODEL
+              value: "deepseek/deepseek-v4-flash"
+            - name: AGENT_MEMORY_LOG_PATH
+              value: ""
+            # ── Multi-agent pipeline: enabled by default, fast mode ──
+            - name: USE_AGENT_PIPELINE
+              value: "1"
+            - name: AGENT_MAX_DEBATE_ROUNDS
+              value: "0"
+            - name: AGENT_MAX_RISK_ROUNDS
+              value: "0"
           # ── Security: non-root, read-only rootfs ──
           securityContext:
             runAsNonRoot: true
