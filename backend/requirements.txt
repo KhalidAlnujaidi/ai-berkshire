@@ -28,5 +28,14 @@ playwright>=1.48.0
 # ── AI Research Engine (OpenRouter — OpenAI-compatible API) ─────────────────
 openai>=1.0.0
 
+# ── Multi-Agent Pipeline (LangGraph + LangChain) ────────────────────────────
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langgraph>=0.2.0
+pydantic>=2.0.0
+
+# ── Stock data (Yahoo Finance) ──────────────────────────────────────────────
+yfinance>=0.2.0
+
 # ── Billing (Stripe) ────────────────────────────────────────────────────────
 stripe>=10.0.0

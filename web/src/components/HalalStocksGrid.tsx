@@ -41,7 +41,7 @@ const FALLBACK_HALAL: HalalStock[] = [
     market: "saudi",
     currency: "SAR",
     verdict: "COMPLIANT",
-    verdict_detail: "Islamic banking model. Debt/assets under AAOIFI threshold. No interest income from core operations.",
+    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
   },
   {
     ticker: "2222",
@@ -52,7 +52,7 @@ const FALLBACK_HALAL: HalalStock[] = [
     market: "saudi",
     currency: "SAR",
     verdict: "COMPLIANT",
-    verdict_detail: "Energy sector — permissible business. Low debt-to-assets ratio. Government-owned, minimal interest exposure.",
+    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
   },
   {
     ticker: "7010",
@@ -63,7 +63,7 @@ const FALLBACK_HALAL: HalalStock[] = [
     market: "saudi",
     currency: "SAR",
     verdict: "COMPLIANT",
-    verdict_detail: "Telecom sector — permissible business. Interest-bearing investments within AAOIFI limits.",
+    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
   },
   {
     ticker: "2010",
@@ -73,8 +73,8 @@ const FALLBACK_HALAL: HalalStock[] = [
     sector_ar: "البتروكيماويات",
     market: "saudi",
     currency: "SAR",
-    verdict: "COMPLIANT",
-    verdict_detail: "Petrochemicals sector permissible. All financial ratios pass AAOIFI Standard No. 21.",
+    verdict: "COMPLIANT_WITH_OVERLAY",
+    verdict_detail: "Permitted business. Monitor for impermissible income streams.",
   },
   {
     ticker: "2380",
@@ -85,7 +85,7 @@ const FALLBACK_HALAL: HalalStock[] = [
     market: "saudi",
     currency: "SAR",
     verdict: "COMPLIANT",
-    verdict_detail: "Islamic banking model compliant with AAOIFI standards. No conventional interest operations.",
+    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
   },
   {
     ticker: "2280",
@@ -96,7 +96,7 @@ const FALLBACK_HALAL: HalalStock[] = [
     market: "saudi",
     currency: "SAR",
     verdict: "COMPLIANT",
-    verdict_detail: "Fuel retail — permissible. Low leverage. High liquidity within AAOIFI thresholds.",
+    verdict_detail: "Passes both qualitative and quantitative Sharia screens.",
   },
 ];
 
@@ -160,8 +160,8 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-mizan-green/10 rounded-full mb-4">
             <span className="w-2 h-2 bg-mizan-green rounded-full animate-pulse" />
-            <span className="text-sm font-medium text-mizan-green-dark font-arabic">
-              {locale === "ar" ? "مفحوص بمعايير AAOIFI" : "Screened by AAOIFI"}
+            <span className="text34 text-sm font-medium text-mizan-green-dark font-arabic">
+              {locale === "ar" ? "مفلتر مسبقاً" : "Pre-filtered"}
             </span>
           </div>
           <h2 className="text-3xl md:text-5xl font-bold text-mizan-ink mb-4 font-arabic">
@@ -241,69 +241,82 @@ export default function HalalStocksGrid({ dict, locale }: HalalStocksGridProps) 
               return (
                 <div
                   key={`${stock.ticker}-${stock.name_en}`}
-                  className="relative bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-lg hover:border-mizan-green/30 transition-all duration-300"
+                  className="group relative bg-white rounded-2xl border-2 border-gray-100 hover:border-mizan-green/40 hover:shadow-lg transition-all p-5 overflow-hidden"
                 >
-                  {/* Badge */}
-                  <div
-                    className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-full mb-4 ${
-                      isPureCompliant
-                        ? "bg-mizan-green-pale text-mizan-green"
-                        : "bg-mizan-gold/10 text-mizan-gold-dark"
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        isPureCompliant ? "bg-mizan-green" : "bg-mizan-gold"
-                      }`}
+                  {/* Star button (absolute, so it doesn't interfere with Link) */}
+                  <div className="absolute top-4 right-4 z-10">
+                    <StarButton
+                      ticker={stock.ticker}
+                      name_en={stock.name_en}
+                      name_ar={stock.name_ar}
+                      sector_en={stock.sector_en}
+                      sector_ar={stock.sector_ar}
+                      verdict={stock.verdict}
+                      locale={locale}
+                      size="sm"
                     />
-                    {isPureCompliant ? d.verifiedHalal : d.needsPurification}
                   </div>
 
-                  {/* Ticker + Name */}
-                  <div className="mb-3">
-                    <span className="text-xs font-mono text-mizan-slate">{stock.ticker}</span>
-                    <h3 className="text-lg font-bold text-mizan-ink font-arabic">
-                      {locale === "ar" ? stock.name_ar : stock.name_en}
-                    </h3>
-                  </div>
+                  <Link href={`/${locale}/stock/${stock.ticker}`} className="block cursor-pointer">
+                    {/* Verdict badge */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="pr-12">
+                        <span className="text-xs font-mono text-gray-400">{stock.ticker}</span>
+                        <h3 className="text-lg font-bold text-mizan-ink font-arabic mt-0.5">
+                          {locale === "ar" ? stock.name_ar : stock.name_en}
+                        </h3>
+                      </div>
+                      <span
+                        className={`px-2.5 py-1 text-xs font-bold rounded-full whitespace-nowrap ${
+                          isPureCompliant
+                            ? "bg-mizan-green/15 text-mizan-green-dark"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {isPureCompliant ? "✓ Halal" : "⚠ Halal*"}
+                      </span>
+                    </div>
 
-                  {/* Sector */}
-                  <p className="text-sm text-mizan-slate mb-3 font-arabic">
-                    {locale === "ar" ? stock.sector_ar : stock.sector_en}
-                  </p>
+                    {/* Sector + market */}
+                    <div className="flex items-center gap-3 text-sm text-mizan-slate">
+                      <span className="font-arabic">
+                        {locale === "ar" ? stock.sector_ar : stock.sector_en}
+                      </span>
+                      {stock.market !== "saudi" && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <span className="uppercase text-xs font-medium">{stock.market}</span>
+                        </>
+                      )}
+                    </div>
 
-                  {/* Verdict detail — specific, not boilerplate */}
-                  <p className="text-xs text-mizan-slate/70 leading-relaxed mb-4 font-arabic">
-                    {stock.verdict_detail}
-                  </p>
+                    {/* Hover detail */}
+                    <div className="mt-3 pt-3 border-t border-gray-50">
+                      <p className="text-xs text-mizan-slate/70 font-arabic line-clamp-2">
+                        {stock.verdict_detail}
+                      </p>
+                    </div>
 
-                  {/* Footer: market + link */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-mizan-slate/50 uppercase tracking-wider">
-                      {stock.market.toUpperCase()} · {stock.currency}
-                    </span>
-                    <button
-                      onClick={() => {
-                        window.dispatchEvent(
-                          new CustomEvent("prefill-stock", { detail: { ticker: stock.ticker } })
-                        );
-                      }}
-                      className="text-xs font-semibold text-mizan-green hover:text-mizan-green-dark transition-colors font-arabic"
-                    >
-                      {d.viewDetails} →
-                    </button>
-                  </div>
+                    {/* Hover arrow */}
+                    <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-mizan-green text-sm font-medium">
+                        {locale === "ar" ? "عرض التفاصيل ←" : "View details →"}
+                      </span>
+                    </div>
+                  </Link>
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Disclaimer */}
         {!loading && filtered.length === 0 && (
           <div className="text-center py-12">
             <p className="text-mizan-slate font-arabic">
-              {locale === "ar" ? "لا توجد أسهم في هذا القطاع." : "No stocks in this sector."}
+              {locale === "ar"
+                ? "لا توجد أسهم متوافقة في هذا القطاع حالياً."
+                : "No compliant stocks in this sector yet."}
             </p>
           </div>
         )}

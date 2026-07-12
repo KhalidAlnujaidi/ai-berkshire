@@ -32,12 +32,24 @@ logger = logging.getLogger(__name__)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-# Default model: DeepSeek V3 — excellent reasoning + value analysis.
+# Fallback: load from ~/.kinox/env if not in environment (matches agent_pipeline/config.py)
+if not OPENROUTER_API_KEY:
+    _kinox_env = os.path.expanduser("~/.kinox/env")
+    if os.path.exists(_kinox_env):
+        with open(_kinox_env) as _f:
+            for _line in _f:
+                if _line.startswith("OPENROUTER_API_KEY="):
+                    OPENROUTER_API_KEY = _line.split("=", 1)[1].strip()
+                    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
+                    break
+
+# Default model: DeepSeek V4 Flash — fast, excellent reasoning, same one Hermes uses.
 # Alternatives (set via RESEARCH_MODEL env var):
-#   DeepSeek V3:     deepseek/deepseek-chat
-#   GLM (latest):    zhipuai/glm-4.5   (or thudm/glm-... depending on availability)
-#   DeepSeek R1:     deepseek/deepseek-r1
-RESEARCH_MODEL = os.getenv("RESEARCH_MODEL", "deepseek/deepseek-chat")
+#   DeepSeek V4 Flash:  deepseek/deepseek-v4-flash
+#   DeepSeek V3:        deepseek/deepseek-chat
+#   DeepSeek R1:        deepseek/deepseek-r1
+#   GLM:                zhipuai/glm-4.5
+RESEARCH_MODEL = os.getenv("RESEARCH_MODEL", "deepseek/deepseek-v4-flash")
 MAX_TOKENS = 16000
 DAILY_REPORT_LIMIT = 5
 
@@ -113,7 +125,7 @@ The rating and summary lines are REQUIRED — they are parsed by the system to p
 # ── Rating / summary parsing ─────────────────────────────────────────────────
 
 _RATING_PATTERN = re.compile(
-    r'\*\*RATING:\s*\*?\*?\s*(STRONG_BUY|BUY|HOLD|WATCH|AVOID)',
+    r'\*\*(?:RATING|Rating):\s*\*?\\*?\s*(STRONG_BUY|BUY|HOLD|WATCH|AVOID)',
     re.IGNORECASE,
 )
 _SUMMARY_PATTERN = re.compile(
@@ -323,10 +335,17 @@ def generate_research_report(report_id: int) -> None:
                     meta = _parse_report_metadata(decision)
                     if not meta.get("rating"):
                         # Try to extract rating from the structured decision
-                        import re
-                        rating_match = re.search(r'\*\*Rating\*\*:\s*(.+?)(?:\n|$)', decision)
+                        # Pipeline outputs: "Strong Buy", "Buy", "Hold", "Watch", "Avoid", "Non-Compliant"
+                        rating_match = re.search(
+                            r'\*\*Rating\*\*:\s*(Strong\s*Buy|Buy|Hold|Watch|Avoid|Non-Compliant)',
+                            decision, re.IGNORECASE
+                        )
                         if rating_match:
-                            meta["rating"] = rating_match.group(1).strip().upper()
+                            raw = rating_match.group(1).strip()
+                            # Normalize: "Strong Buy" → "STRONG_BUY", "Non-Compliant" → "NON_COMPLIANT"
+                            meta["rating"] = raw.upper().replace(" ", "_").replace("-", "_")
+                        elif re.search(r'FINAL DECISION:\s*\*\*(NON-COMPLIANT)\*\*', decision, re.IGNORECASE):
+                            meta["rating"] = "NON_COMPLIANT"
                         else:
                             meta["rating"] = "HOLD"
                     if not meta.get("summary"):

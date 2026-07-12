@@ -53,11 +53,7 @@ export default function Vision({ dict }: VisionProps) {
         <div className="max-w-3xl mx-auto text-center p-8 md:p-12 rounded-2xl bg-gradient-to-r from-mizan-green-dark/40 to-mizan-gold/10 border border-mizan-gold/20">
           <h3 className="text-2xl font-bold text-white mb-3 font-arabic">{dict.vision.pifTitle}</h3>
           <p className="text-gray-300 font-arabic leading-relaxed">{dict.vision.pifDescription}</p>
-          <div className="mt-6 text-5xl font-bold text-mizan-gold font-arabic">
-            ${dict.vision.totalValue}
-          </div>
-          <div className="text-sm text-gray-400 mt-2 font-arabic">{dict.vision.totalValueLabel}</div>
-          <div className="text-xs text-gray-500 mt-1 font-arabic">{dict.vision.pifSource}</div>
+          <div className="mt-6 text-5xl font-bold text-mizan-gold font-arabic">$925B+</div>
         </div>
       </div>
     </section>

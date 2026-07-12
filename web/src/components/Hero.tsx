@@ -59,17 +59,16 @@ export default function Hero({ dict }: HeroProps) {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 animate-fade-in-up">
             {[
-              { value: dict.hero.statValues.investors, label: dict.hero.stats.investors, source: dict.hero.statSources.investors },
-              { value: dict.hero.statValues.stocks, label: dict.hero.stats.stocks, source: dict.hero.statSources.stocks },
-              { value: dict.hero.statValues.sharia, label: dict.hero.stats.sharia, source: dict.hero.statSources.sharia },
-              { value: dict.hero.statValues.accuracy, label: dict.hero.stats.accuracy, source: dict.hero.statSources.accuracy },
+              { value: dict.hero.statValues.investors, label: dict.hero.stats.investors },
+              { value: dict.hero.statValues.stocks, label: dict.hero.stats.stocks },
+              { value: dict.hero.statValues.sharia, label: dict.hero.stats.sharia },
+              { value: dict.hero.statValues.accuracy, label: dict.hero.stats.accuracy },
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-3xl md:text-4xl font-bold text-mizan-green font-arabic">
                   {stat.value}
                 </div>
                 <div className="text-sm text-mizan-slate mt-1 font-arabic">{stat.label}</div>
-                <div className="text-[10px] text-mizan-slate/50 mt-0.5 font-arabic">{stat.source}</div>
               </div>
             ))}
           </div>

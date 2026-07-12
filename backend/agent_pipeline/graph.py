@@ -45,6 +45,7 @@ from agent_pipeline.tools.data import (
     fetch_market_data,
     fetch_news_data,
     fetch_sharia_data,
+    fetch_yfinance_financials,
 )
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,17 @@ def run_pipeline(
     """
     financial_data = financial_data or {}
 
+    # ── Auto-detect company info and financials from yfinance ─────────
+    yf_fin = fetch_yfinance_financials(ticker)
+    if not company_name and yf_fin.get("company_name"):
+        company_name = yf_fin["company_name"]
+    if not sector and yf_fin.get("sector"):
+        sector = yf_fin["sector"]
+
+    # Merge: externally-provided financial_data takes priority over auto-fetched
+    auto_raw = yf_fin.get("raw", {})
+    merged_financials = {**auto_raw, **financial_data}
+
     graph = build_graph()
 
     # ── Pre-fetch all data before the first node runs ────────────────
@@ -200,10 +212,11 @@ def run_pipeline(
         "company_of_interest": ticker,
         "trade_date": datetime.now().strftime("%Y-%m-%d"),
         "messages": [],
+        "instrument_context": None,  # will use default from get_instrument_context_from_state
         "price_data": fetch_market_data(ticker),
         "financial_data": fetch_fundamentals_data(ticker),
         "news_data": fetch_news_data(ticker),
-        "sharia_data": fetch_sharia_data(ticker, sector=sector, **financial_data),
+        "sharia_data": fetch_sharia_data(ticker, sector=sector, **merged_financials),
         # Analyst reports — initialised empty, filled by each analyst
         "market_report": "",
         "fundamentals_report": "",

@@ -81,9 +81,6 @@ export default function TrackRecord({ dict }: TrackRecordProps) {
               </tbody>
             </table>
           </div>
-          <div className="text-center mt-4">
-            <span className="text-xs text-gray-500 font-arabic">{t.sourceLabel}</span>
-          </div>
         </div>
 
         {/* Disclaimer */}
