@@ -300,6 +300,130 @@ def me(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
 
 
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+
+
+from google_oauth import (
+    enabled as google_oauth_enabled,
+    get_authorization_url,
+    exchange_code,
+    get_user_info,
+    FRONTEND_URL,
+)
+from fastapi.responses import RedirectResponse, HTMLResponse
+
+
+@app.get("/api/auth/google")
+def google_oauth_authorize(request: Request):
+    """Redirect the user to Google's OAuth consent screen.
+
+    If Google OAuth is not configured, returns a 501 with instructions.
+    """
+    if not google_oauth_enabled:
+        return HTMLResponse(
+            content="""
+            <html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh">
+            <div style="text-align:center"><h1>Google Login Not Configured</h1>
+            <p>Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in the server environment.</p>
+            <a href="/">Back to Home</a></div></body></html>
+            """,
+            status_code=501,
+        )
+
+    state = _secrets.token_urlsafe(32)
+    # Store state in a short-lived session / cookie so we can verify it on callback
+    auth_url = get_authorization_url(state=state)
+    redirect = RedirectResponse(url=auth_url, status_code=302)
+    redirect.set_cookie(
+        key="oauth_state",
+        value=state,
+        max_age=300,       # 5 minutes
+        httponly=True,
+        samesite="lax",
+        secure=True,
+    )
+    return redirect
+
+
+@app.get("/api/auth/google/callback")
+def google_oauth_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: Session = Depends(get_db),
+):
+    """Handle the Google OAuth callback.
+
+    On success, redirects to the frontend with a JWT token in the URL:
+        /login?token=xxx
+
+    On error, redirects to the frontend login page with an error:
+        /login?error=xxx
+    """
+    if error:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/{request.cookies.get('locale', 'en')}/login?error=access_denied",
+            status_code=302,
+        )
+
+    if not google_oauth_enabled:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/{request.cookies.get('locale', 'en')}/login?error=not_configured",
+            status_code=302,
+        )
+
+    # Verify state to prevent CSRF
+    stored_state = request.cookies.get("oauth_state")
+    if not stored_state or stored_state != state:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/{request.cookies.get('locale', 'en')}/login?error=invalid_state",
+            status_code=302,
+        )
+
+    # Exchange code for tokens
+    tokens = exchange_code(code)
+    if not tokens or "access_token" not in tokens:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/{request.cookies.get('locale', 'en')}/login?error=token_exchange_failed",
+            status_code=302,
+        )
+
+    # Fetch user info
+    google_user = get_user_info(tokens["access_token"])
+    if not google_user or "email" not in google_user:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/{request.cookies.get('locale', 'en')}/login?error=userinfo_failed",
+            status_code=302,
+        )
+
+    email = google_user["email"].lower().strip()
+    name = google_user.get("name", "")
+
+    # Find or create user
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # Auto-register with Google account
+        user = User(
+            email=email,
+            full_name=name or None,
+            hashed_password="__oauth__google__",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Generate JWT
+    jwt_token = create_access_token({"sub": str(user.id)})
+
+    # Redirect to frontend with token
+    locale = request.cookies.get("locale", "en")
+    return RedirectResponse(
+        url=f"{FRONTEND_URL}/{locale}/login?token={jwt_token}",
+        status_code=302,
+    )
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # PASSWORD RESET ENDPOINTS
 # ════════════════════════════════════════════════════════════════════════════

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Dict } from "@/i18n/ar";
@@ -20,7 +20,7 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
   const dir = getDirection(locale);
   useLocaleAttrs(locale, dir);
   const router = useRouter();
-  const { login, register } = useAuth();
+  const { login, register, loginWithToken } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +30,33 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string>("");
+
+  // ── Handle OAuth redirect back (token in URL) ─────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    const oauthError = params.get("error");
+
+    if (token) {
+      loginWithToken(token);
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+      router.push(`/${locale}`);
+      return;
+    }
+
+    if (oauthError) {
+      const messages: Record<string, string> = {
+        access_denied: locale === "ar" ? "تم رفض الوصول" : "Access denied",
+        not_configured: locale === "ar" ? "لم يتم إعداد تسجيل الدخول عبر Google" : "Google login not configured",
+        invalid_state: locale === "ar" ? "انتهت الجلسة، حاول مرة أخرى" : "Session expired, try again",
+        token_exchange_failed: locale === "ar" ? "فشل الاتصال بخدمة Google" : "Failed to connect to Google",
+        userinfo_failed: locale === "ar" ? "فشل في الحصول على معلومات المستخدم" : "Failed to get user info",
+      };
+      setApiError(messages[oauthError] || oauthError);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [locale, router, saveToken]);
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
@@ -102,12 +129,11 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
             {isSignup ? t.signupSubtitle : t.loginSubtitle}
           </p>
 
-          {/* Social auth (cosmetic — for future OAuth) */}
+          {/* Social auth — Google Sign-In */}
           <div className="grid grid-cols-2 gap-3 mb-6">
-            <button
-              type="button"
-              className="flex items-center justify-center gap-2 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-sm font-medium text-mizan-slate cursor-not-allowed opacity-60"
-              title={locale === "ar" ? "قريباً" : "Coming soon"}
+            <a
+              href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/auth/google`}
+              className="flex items-center justify-center gap-2 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all text-sm font-medium text-mizan-slate"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -116,7 +142,7 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
               </svg>
               {t.googleButton}
-            </button>
+            </a>
             <button
               type="button"
               className="flex items-center justify-center gap-2 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-sm font-medium text-mizan-slate cursor-not-allowed opacity-60"

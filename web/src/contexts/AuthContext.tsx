@@ -29,6 +29,7 @@ interface AuthContextValue {
     phone?: string;
   }) => Promise<void>;
   logout: () => void;
+  loginWithToken: (token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -80,6 +81,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const loginWithToken = useCallback(async (token: string) => {
+    setToken(token);
+    try {
+      const u = await authApi.me();
+      setUser(u);
+    } catch {
+      clearToken();
+      throw new Error("Invalid token");
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -89,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
+        loginWithToken,
       }}
     >
       {children}
