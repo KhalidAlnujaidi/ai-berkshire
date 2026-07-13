@@ -85,96 +85,224 @@ const AGENT_ICONS: Record<string, string> = {
   portfolio_manager: "🏆",
 };
 
-// ── Agent Progress Cards ────────────────────────────────────────────────────
+const AGENT_ROLES: Record<string, { en: string; ar: string }> = {
+  market_analyst: { en: "Analyzing price action, trends, and technical indicators", ar: "تحليل حركة السعر والاتجاهات والمؤشرات الفنية" },
+  fundamentals_analyst: { en: "Evaluating financial health, valuation, and profitability", ar: "تقييم الصحة المالية والتقييم والربحية" },
+  news_analyst: { en: "Scanning news, macro context, and analyst sentiment", ar: "مسح الأخبار والسياق العام وتوجهات المحللين" },
+  sharia_analyst: { en: "Screening for AAOIFI Sharia compliance", ar: "فحص الامتثال الشرعي وفق معيار AAOIFI" },
+  analyst_sync: { en: "Synthesizing all analyst reports", ar: "تجميع تقارير المحللين" },
+  bull_researcher: { en: "Building the evidence-based bull case", ar: "بناء حالة الاتجاه الصاعد المدعومة بالأدلة" },
+  bear_researcher: { en: "Building the evidence-based bear case", ar: "بناء حالة الاتجاه الهابط المدعومة بالأدلة" },
+  research_manager: { en: "Adjudicating debate and forming investment plan", ar: "البت في المناظرة وصياغة خطة الاستثمار" },
+  trader: { en: "Determining optimal entry, sizing, and stop-loss", ar: "تحديد نقطة الدخول المثلى وحجم المركز" },
+  aggressive_debator: { en: "Arguing for aggressive risk posture", ar: "مناقشة وضع المخاطر الجريء" },
+  conservative_debator: { en: "Arguing for conservative risk posture", ar: "مناقشة وضع المخاطر المتحفظ" },
+  neutral_debator: { en: "Providing balanced risk assessment", ar: "تقديم تقييم متوازن للمخاطر" },
+  portfolio_manager: { en: "Making final investment decision", ar: "اتخاذ قرار الاستثمار النهائي" },
+};
+
+// Pipeline flow groups
+const PIPELINE_GROUPS = [
+  { label: { en: "Data Collection", ar: "جمع البيانات" }, agents: ["market_analyst", "fundamentals_analyst"] },
+  { label: { en: "Analysis", ar: "التحليل" }, agents: ["news_analyst", "sharia_analyst"] },
+  { label: { en: "Research & Debate", ar: "البحث والمناظرة" }, agents: ["bull_researcher", "bear_researcher", "research_manager"] },
+  { label: { en: "Execution", ar: "التنفيذ" }, agents: ["trader", "aggressive_debator", "conservative_debator", "neutral_debator"] },
+  { label: { en: "Decision", ar: "القرار" }, agents: ["portfolio_manager"] },
+];
+
+function getGroupForAgent(agentName: string): number {
+  for (let i = 0; i < PIPELINE_GROUPS.length; i++) {
+    if (PIPELINE_GROUPS[i].agents.includes(agentName)) return i;
+  }
+  return -1;
+}
+
+// ── Time elapsed ─────────────────────────────────────────────────────────────
+
+function useElapsed(startedAt: number | null): string {
+  const [elapsed, setElapsed] = useState("0s");
+  useEffect(() => {
+    if (!startedAt) return;
+    const update = () => {
+      const sec = Math.floor((Date.now() - startedAt) / 1000);
+      if (sec < 60) setElapsed(`${sec}s`);
+      else setElapsed(`${Math.floor(sec / 60)}m ${sec % 60}s`);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+  return elapsed;
+}
+
+// ── Agent Progress Cards (polished) ──────────────────────────────────────────
 
 function AgentProgressCards({
   agents,
   dict,
+  locale,
 }: {
   agents: AgentStep[];
   dict: Dict;
+  locale: string;
 }) {
   const t = dict.research.progress;
+  const startTime = agents.length > 0 ? agents[0].started_at : null;
+  const elapsed = useElapsed(startTime ? startTime * 1000 : null);
+  const completedCount = agents.filter((a) => a.status === "done").length;
+  const totalVisible = agents.filter((a) => a.agent !== "__pipeline__").length;
+  const pct = totalVisible > 0 ? Math.round((completedCount / totalVisible) * 100) : 0;
+
+  // Categorize agents by pipeline phase
+  const dataAgents = agents.filter((a) => ["market_analyst", "fundamentals_analyst"].includes(a.agent));
+  const analysisAgents = agents.filter((a) => ["news_analyst", "sharia_analyst"].includes(a.agent));
+  const researchAgents = agents.filter((a) => ["bull_researcher", "bear_researcher", "research_manager"].includes(a.agent));
+  const executionAgents = agents.filter((a) => ["trader", "aggressive_debator", "conservative_debator", "neutral_debator"].includes(a.agent));
+  const decisionAgents = agents.filter((a) => ["portfolio_manager"].includes(a.agent));
+
+  const phases = [
+    { label: locale === "ar" ? "جمع البيانات" : "Data Collection", agents: dataAgents, color: "blue" },
+    { label: locale === "ar" ? "التحليل" : "Analysis", agents: analysisAgents, color: "indigo" },
+    { label: locale === "ar" ? "البحث والمناظرة" : "Research & Debate", agents: researchAgents, color: "purple" },
+    { label: locale === "ar" ? "التنفيذ" : "Execution", agents: executionAgents, color: "amber" },
+    { label: locale === "ar" ? "القرار النهائي" : "Final Decision", agents: decisionAgents, color: "emerald" },
+  ];
+
   return (
-    <div className="space-y-2">
-      {agents.map((step, i) => {
-        const name = t.agents[step.agent as keyof typeof t.agents] || step.agent;
-        const icon = AGENT_ICONS[step.agent] || "🤖";
-        const isRunning = step.status === "running";
-        const isDone = step.status === "done";
-        const isError = step.status === "error";
-        return (
-          <div
-            key={step.agent + i}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
-              isRunning
-                ? "bg-blue-50 border-blue-200 shadow-sm"
-                : isDone
-                ? "bg-mizan-green-pale/50 border-mizan-green/20"
-                : isError
-                ? "bg-red-50 border-red-200"
-                : "bg-gray-50 border-gray-100"
-            }`}
-          >
-            {/* Icon */}
+    <div>
+      {/* Progress summary bar */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="relative w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0 ${
-                isRunning
-                  ? "bg-blue-100"
-                  : isDone
-                  ? "bg-mizan-green/10"
-                  : isError
-                  ? "bg-red-100"
-                  : "bg-gray-100"
-              }`}
-            >
-              {isRunning ? (
-                <span className="animate-spin inline-block">⟳</span>
-              ) : isDone ? (
-                <span>✓</span>
-              ) : (
-                icon
+              className="h-full bg-gradient-to-r from-mizan-green to-mizan-green-dark rounded-full transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-xs font-medium text-mizan-slate">{pct}%</span>
+        </div>
+        <span className="text-xs text-gray-400 font-mono">{elapsed}</span>
+      </div>
+
+      {/* Phase cards */}
+      {phases.map((phase) => {
+        if (phase.agents.length === 0) return null;
+        const allDone = phase.agents.every((a) => a.status === "done");
+        const anyRunning = phase.agents.some((a) => a.status === "running");
+        return (
+          <div key={phase.label} className="mb-3">
+            {/* Phase label */}
+            <div className="flex items-center gap-2 mb-1.5 px-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                allDone ? "bg-mizan-green" : anyRunning ? "bg-blue-500 animate-pulse" : "bg-gray-300"
+              }`} />
+              <span className={`text-xs font-semibold tracking-wide ${
+                allDone ? "text-mizan-green-dark" : anyRunning ? "text-blue-600" : "text-gray-400"
+              }`}>
+                {phase.label}
+              </span>
+              {allDone && (
+                <svg className="w-3 h-3 text-mizan-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
               )}
             </div>
 
-            {/* Name + summary */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-sm font-semibold ${
-                    isRunning ? "text-blue-700" : isDone ? "text-mizan-green-dark" : "text-mizan-ink"
-                  }`}
-                >
-                  {icon} {name}
-                </span>
-                {isRunning && (
-                  <span className="text-xs text-blue-500 animate-pulse">
-                    {t.status_running}
-                  </span>
-                )}
-                {isDone && (
-                  <span className="text-xs text-mizan-green-dark">{t.status_done}</span>
-                )}
-                {isError && (
-                  <span className="text-xs text-red-600">{t.status_error}</span>
-                )}
-              </div>
-              {step.summary && (
-                <p className="text-xs text-mizan-slate mt-0.5 truncate max-w-md">
-                  {step.summary}
-                </p>
-              )}
+            {/* Agent cards */}
+            <div className="space-y-1.5">
+              {phase.agents.map((step, i) => {
+                const name = (t.agents as Record<string, string>)[step.agent] || step.agent;
+                const icon = AGENT_ICONS[step.agent] || "🤖";
+                const role = AGENT_ROLES[step.agent];
+                const isRunning = step.status === "running";
+                const isDone = step.status === "done";
+                const isError = step.status === "error";
+
+                return (
+                  <div
+                    key={step.agent + i}
+                    className={`group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all duration-300 ${
+                      isRunning
+                        ? "bg-white border-blue-200 shadow-sm shadow-blue-100/50"
+                        : isDone
+                        ? "bg-white border-mizan-green/15"
+                        : isError
+                        ? "bg-white border-red-200"
+                        : "bg-gray-50/50 border-gray-100"
+                    } ${i === 0 && !isRunning && !isDone ? "animate-fade-in-up" : ""}`}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                    title={role ? (locale === "ar" ? role.ar : role.en) : ""}
+                  >
+                    {/* Status dot */}
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      isRunning ? "bg-blue-500 animate-pulse" : isDone ? "bg-mizan-green" : isError ? "bg-red-500" : "bg-gray-300"
+                    }`} />
+
+                    {/* Icon */}
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0 ${
+                      isRunning ? "bg-blue-50" : isDone ? "bg-mizan-green/5" : "bg-gray-100"
+                    }`}>
+                      {isRunning ? (
+                        <svg className="w-4 h-4 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : isDone ? (
+                        <svg className="w-4 h-4 text-mizan-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span>{icon}</span>
+                      )}
+                    </div>
+
+                    {/* Name + summary */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-xs font-semibold ${
+                          isRunning ? "text-blue-700" : isDone ? "text-mizan-green-dark" : "text-gray-500"
+                        }`}>
+                          {name}
+                        </span>
+                        {isRunning && (
+                          <span className="text-[10px] text-blue-400 font-medium tracking-wide">
+                            ● {t.status_running}
+                          </span>
+                        )}
+                      </div>
+                      {isDone && step.summary && (
+                        <p className="text-[11px] text-gray-400 mt-0.5 truncate max-w-[200px] sm:max-w-xs">
+                          {step.summary.slice(0, 80)}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Right side */}
+                    {isRunning && (
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex gap-0.5">
+                          <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                      </div>
+                    )}
+                    {isDone && (
+                      <svg className="w-3.5 h-3.5 text-mizan-green/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Animated bar */}
-            {isRunning && (
-              <div className="w-16 h-1.5 bg-blue-100 rounded-full overflow-hidden flex-shrink-0">
-                <div className="h-full bg-blue-500 rounded-full animate-progress-pulse" />
-              </div>
-            )}
-            {isDone && (
-              <div className="w-16 h-1.5 bg-mizan-green/10 rounded-full overflow-hidden flex-shrink-0">
-                <div className="h-full w-full bg-mizan-green rounded-full" />
+            {/* Connecting line between phases */}
+            {phase !== phases[phases.length - 1] && phase.agents.length > 0 && (
+              <div className="flex justify-center py-1">
+                <div className={`w-0.5 h-4 rounded-full ${
+                  phase.agents.every((a) => a.status === "done") ? "bg-mizan-green" : "bg-gray-200"
+                }`} />
               </div>
             )}
           </div>
@@ -566,7 +694,7 @@ export default function ResearchPage({ dict, locale }: ResearchPageProps) {
                   <p className="text-sm text-mizan-slate mb-4 font-arabic">
                     {t.progress.subtitle}
                   </p>
-                  <AgentProgressCards agents={agentProgress} dict={dict} />
+                  <AgentProgressCards agents={agentProgress} dict={dict} locale={locale} />
                 </div>
               </div>
             )}
@@ -779,7 +907,7 @@ function ReportView({
                   <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
                   {t.progress.title}
                 </h4>
-                <AgentProgressCards agents={agentProgress} dict={dict} />
+                <AgentProgressCards agents={agentProgress} dict={dict} locale={locale} />
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-8">
