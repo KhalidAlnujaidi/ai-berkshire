@@ -192,6 +192,21 @@ export const researchApi = {
   streamUrl: (jobId: number) => `${API_BASE}/api/reports/${jobId}/stream`,
 };
 
+export interface SearchResult {
+  ticker: string;
+  name_en: string;
+  name_ar: string;
+  sector_en: string;
+  sector_ar: string;
+  verdict: string;
+  verdict_ar: string;
+}
+
+export const searchApi = {
+  search: (q: string) =>
+    apiFetch<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
+};
+
 export interface AgentStep {
   agent: string;
   status: "running" | "done" | "error";

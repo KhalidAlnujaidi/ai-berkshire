@@ -9,11 +9,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   researchApi,
   billingApi,
+  searchApi,
   type ResearchReport,
   type ResearchListItem,
   type ApiError,
   type AgentStep,
   type AgentProgressData,
+  type SearchResult,
 } from "@/lib/api";
 
 interface ResearchPageProps {
@@ -198,6 +200,40 @@ export default function ResearchPage({ dict, locale }: ResearchPageProps) {
   const [samples, setSamples] = useState<ResearchReport[]>([]);
   const [subscribed, setSubscribed] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Ticker search autocomplete
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [showSearch, setShowSearch] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState("");
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced search
+  const doSearch = useCallback(async (q: string) => {
+    if (q.trim().length < 1) {
+      setSearchResults([]);
+      setShowSearch(false);
+      return;
+    }
+    try {
+      const results = await searchApi.search(q);
+      setSearchResults(results.slice(0, 8));
+      setShowSearch(results.length > 0);
+    } catch {
+      // silently fail — not critical
+    }
+  }, []);
+
+  // Close search on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSearch(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -425,20 +461,80 @@ export default function ResearchPage({ dict, locale }: ResearchPageProps) {
               <label className="block text-sm font-medium text-mizan-slate mb-2 font-arabic">
                 {t.inputLabel}
               </label>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !generating) handleGenerate();
-                  }}
-                  placeholder={t.inputPlaceholder}
-                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-mizan-green/30 focus:border-mizan-green transition-all font-arabic"
-                  dir="ltr"
-                />
+              <div className="flex flex-col sm:flex-row gap-3 relative" ref={searchRef}>
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={ticker}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTicker(val);
+                      setSelectedCompany("");
+                      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                      searchTimerRef.current = setTimeout(() => doSearch(val), 200);
+                    }}
+                    onFocus={() => {
+                      if (searchResults.length > 0) setShowSearch(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setShowSearch(false);
+                        if (!generating) handleGenerate();
+                      }
+                      if (e.key === "Escape") setShowSearch(false);
+                    }}
+                    placeholder={t.inputPlaceholder}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-mizan-green/30 focus:border-mizan-green transition-all font-arabic"
+                    dir="ltr"
+                  />
+                  {/* Selected company badge */}
+                  {selectedCompany && (
+                    <div className="absolute left-3 -bottom-6">
+                      <span className="text-xs text-mizan-green-dark font-medium font-arabic">
+                        {selectedCompany}
+                      </span>
+                    </div>
+                  )}
+                  {/* Search dropdown */}
+                  {showSearch && searchResults.length > 0 && (
+                    <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                      {searchResults.map((r) => (
+                        <button
+                          key={r.ticker}
+                          type="button"
+                          className="w-full text-start px-4 py-3 hover:bg-mizan-green-pale transition-colors flex items-center gap-3 border-b border-gray-50 last:border-0"
+                          onClick={() => {
+                            setTicker(r.ticker);
+                            setSelectedCompany(locale === "ar" ? r.name_ar : r.name_en);
+                            setShowSearch(false);
+                            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                          }}
+                        >
+                          <span className="font-bold text-mizan-green-dark font-latin text-sm w-16 flex-shrink-0">
+                            {r.ticker}
+                          </span>
+                          <span className="flex-1 text-sm text-mizan-ink font-arabic min-w-0 truncate">
+                            {locale === "ar" ? r.name_ar : r.name_en}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            r.verdict === "COMPLIANT" || r.verdict === "COMPLIANT_WITH_OVERLAY"
+                              ? "bg-mizan-green/10 text-mizan-green-dark"
+                              : r.verdict === "NON-COMPLIANT"
+                              ? "bg-red-50 text-red-600"
+                              : "bg-gray-100 text-gray-600"
+                          }`}>
+                            {locale === "ar" ? r.verdict_ar : r.verdict}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button
-                  onClick={handleGenerate}
+                  onClick={() => {
+                    setShowSearch(false);
+                    handleGenerate();
+                  }}
                   disabled={generating || !ticker.trim()}
                   className="px-6 py-3 text-sm font-semibold text-white bg-mizan-green hover:bg-mizan-green-dark rounded-xl transition-colors shadow-sm font-arabic disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 justify-center"
                 >
