@@ -15,6 +15,7 @@ import HowItWorks from "@/components/HowItWorks";
 import Vision2030 from "@/components/Vision2030";
 import Pricing from "@/components/Pricing";
 import CTASection from "@/components/CTASection";
+import AIResearchPipeline from "@/components/AIResearchPipeline";
 import Footer from "@/components/Footer";
 
 export default function HomePage({ params }: { params: { locale: string } }) {
@@ -36,6 +37,7 @@ export default function HomePage({ params }: { params: { locale: string } }) {
         <ShariaChecker dict={dict} locale={locale} />
         <StockCompare dict={dict} locale={locale} />
         <Features dict={dict} />
+        <AIResearchPipeline dict={dict} locale={locale} />
         <HowItWorks dict={dict} />
         <Vision2030 dict={dict} />
         <Pricing dict={dict} />
