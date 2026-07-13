@@ -48,7 +48,7 @@ from database import get_db, init_db, engine
 from models import User, WatchlistItem, PasswordResetToken, Holding, PriceAlert
 from auth import (
     hash_password, verify_password, create_access_token,
-    decode_access_token, get_current_user, get_current_user_optional,
+    decode_access_token, get_current_user, get_optional_user,
 )
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -62,6 +62,7 @@ from schemas import (
     PasswordChangeRequest, MessageResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
     PriceAlertCreate, PriceAlertResponse,
+    TokenResponse, UserRegister, UserLogin, UserResponse,
 )
 from email_service import send_password_reset_email, send_alert_notification_email
 from stock_data import get_price, get_prices_bulk, get_price_history, clear_cache as clear_price_cache

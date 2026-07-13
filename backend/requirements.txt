@@ -37,5 +37,8 @@ pydantic>=2.0.0
 # ── Stock data (Yahoo Finance) ──────────────────────────────────────────────
 yfinance>=0.2.0
 
+# ── SSE streaming for agent pipeline progress ─────────────────────────────
+sse-starlette>=3.0.0
+
 # ── Billing (Stripe) ────────────────────────────────────────────────────────
 stripe>=10.0.0
