@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -26,13 +26,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Copy installed packages from builder (system-wide, not --user)
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+ENV PYTHONPATH=/app
 
 # Copy application code
-COPY app.py auth.py database.py models.py schemas.py stocks.json ./
-COPY sharia_screener.py ./sharia_screener.py
+COPY app.py auth.py database.py models.py schemas.py stocks.json ./ 
+COPY sharia_screener.py stock_data.py research_engine.py email_service.py stripe_service.py metrics.py ./ 
+COPY expand_tadawul.py generate_samples.py rescreen_task.py ./ 
+COPY tadawul_scraper.py ./ 
+COPY google_oauth.py ./
+COPY agent_pipeline/ ./agent_pipeline/
 
 # ── Non-root user for security ──────────────────────────────────────────────
 RUN groupadd -r -g 10001 mizan && useradd -r -u 10001 -g mizan -s /bin/bash mizan \

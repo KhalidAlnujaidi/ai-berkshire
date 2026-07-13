@@ -80,6 +80,11 @@ spec:
               value: "0"
             - name: AGENT_MAX_RISK_ROUNDS
               value: "0"
+            # ── Google OAuth ──────────────────────────────────────────
+            - name: GOOGLE_REDIRECT_URI
+              value: "https://mizan-invest.com/api/auth/google/callback"
+            - name: FRONTEND_URL
+              value: "https://mizan-invest.com"
           # ── Security: non-root, read-only rootfs ──
           securityContext:
             runAsNonRoot: true

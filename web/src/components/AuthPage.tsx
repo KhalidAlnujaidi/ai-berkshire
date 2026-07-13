@@ -56,7 +56,7 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
       setApiError(messages[oauthError] || oauthError);
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, [locale, router, saveToken]);
+  }, [locale, router, loginWithToken]);
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
