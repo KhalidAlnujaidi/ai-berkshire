@@ -66,6 +66,25 @@ body {
 .animate-delay-300 { animation-delay: 300ms; }
 .animate-delay-400 { animation-delay: 400ms; }
 
+/* Progress bar pulse animation */
+@keyframes progress-pulse {
+  0% { width: 20%; margin-left: 0; }
+  50% { width: 60%; margin-left: 30%; }
+  100% { width: 20%; margin-left: 80%; }
+}
+.animate-progress-pulse {
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+/* Fade in up */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out;
+}
+
 /* ---- Hide number input spinners ---- */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {

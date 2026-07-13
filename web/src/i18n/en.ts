@@ -99,6 +99,11 @@ export const en: Dict = {
       overlay: "This stock is compliant but requires income purification",
       nonCompliant: "This stock is NOT Sharia-compliant",
     },
+    warningTitle: "Purification Required",
+    warningExplanation: "This stock passes the sector screen but has financial ratios that require earnings purification. Non-compliant income must be donated to charity. Consult a Sharia scholar for the exact purification ratio.",
+    nonCompliantTitle: "Not Sharia-Compliant",
+    nonCompliantExplanation: "This stock fails one or more AAOIFI Standard No. 21 screens. It cannot be held by Sharia-compliant portfolios. See the specific failed ratios above for details.",
+    aiDisclaimer: "This screening was performed by artificial intelligence based on AAOIFI Standard No. 21. It is not a religious ruling (fatwa). Consult a qualified Sharia scholar for definitive guidance.",
   },
 
   // Discover — Halal Stocks Grid
@@ -455,6 +460,28 @@ export const en: Dict = {
     dailyLimit: "Daily limit reached (5 reports/day). Try again tomorrow.",
     errorOccurred: "An error occurred while generating the report. Please try again.",
     newReport: "New Report",
+    progress: {
+      title: "AI Analysis in Progress",
+      subtitle: "Our multi-agent research team is analyzing this stock",
+      agents: {
+        market_analyst: "Market Analyst",
+        fundamentals_analyst: "Fundamentals Analyst",
+        news_analyst: "News & Macro Analyst",
+        sharia_analyst: "Sharia Compliance Analyst",
+        analyst_sync: "Synthesizing Reports",
+        bull_researcher: "Bull Researcher",
+        bear_researcher: "Bear Researcher",
+        research_manager: "Research Manager",
+        trader: "Trader",
+        aggressive_debator: "Aggressive Risk Analyst",
+        conservative_debator: "Conservative Risk Analyst",
+        neutral_debator: "Neutral Risk Analyst",
+        portfolio_manager: "Portfolio Manager",
+      },
+      status_running: "Analyzing...",
+      status_done: "Complete",
+      status_error: "Error",
+    },
   },
 
   footer: {

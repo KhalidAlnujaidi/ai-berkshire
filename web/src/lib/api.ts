@@ -187,7 +187,23 @@ export const researchApi = {
     ),
 
   samples: () => apiFetch<ResearchReport[]>("/api/research/samples"),
+
+  /** SSE stream URL for agent pipeline progress */
+  streamUrl: (jobId: number) => `${API_BASE}/api/reports/${jobId}/stream`,
 };
+
+export interface AgentStep {
+  agent: string;
+  status: "running" | "done" | "error";
+  summary: string;
+  started_at?: number;
+  completed_at?: number;
+}
+
+export interface AgentProgressData {
+  status: "running" | "complete";
+  agents: AgentStep[];
+}
 
 // ── Billing API ─────────────────────────────────────────────────────────────
 
