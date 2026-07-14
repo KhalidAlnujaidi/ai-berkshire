@@ -132,7 +132,7 @@ export default function AuthPage({ dict, locale, mode }: AuthPageProps) {
           {/* Social auth — Google Sign-In */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             <a
-              href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/auth/google`}
+              href={`/api/auth/google`}
               className="flex items-center justify-center gap-2 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all text-sm font-medium text-mizan-slate"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">

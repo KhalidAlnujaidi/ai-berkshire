@@ -85,6 +85,17 @@ spec:
               value: "https://mizan-invest.com/api/auth/google/callback"
             - name: FRONTEND_URL
               value: "https://mizan-invest.com"
+            # ── Google OAuth credentials (from secrets) ────────────────
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mizan-secrets
+                  key: GOOGLE_CLIENT_SECRET
           # ── Security: non-root, read-only rootfs ──
           securityContext:
             runAsNonRoot: true
